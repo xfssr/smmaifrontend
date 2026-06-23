@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+test-results
+logs
+*.log
+*.local
+.env
+.env.local
+.env.*
+!.env.example
+!.env.*.example

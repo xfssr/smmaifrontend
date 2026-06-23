@@ -1,0 +1,40 @@
+:root {
+  --bg: #06070a;
+  --bg-soft: #0d0f14;
+  --panel: rgba(19, 21, 27, 0.84);
+  --panel-strong: rgba(28, 31, 39, 0.92);
+  --silver: #d8dde6;
+  --silver-soft: #9ca3af;
+  --white: #f6f7fb;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.18);
+  --green: #3ddc97;
+  --red: #ff5c5c;
+  --yellow: #f6c65b;
+  --radius: 24px;
+  --shadow: 0 30px 90px rgba(0, 0, 0, 0.55);
+}
+
+.icon {
+  display: inline-block;
+  vertical-align: middle;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.icon-soft { color: var(--silver-soft); }
+.icon-bright { color: var(--white); }
+.icon-success { color: var(--green); }
+.icon-error { color: var(--red); }
+.icon-warning { color: var(--yellow); }
+.icon-spin {
+  animation: iconSpin 1.1s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes iconSpin {
+  to { transform: rotate(360deg); }
+}

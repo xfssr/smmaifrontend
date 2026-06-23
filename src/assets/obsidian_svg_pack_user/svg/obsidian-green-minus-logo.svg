@@ -1,0 +1,17 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path d="M24 5L39.5 13.95V34.05L24 43L8.5 34.05V13.95L24 5Z"
+        stroke="url(#silverStroke)"
+        stroke-width="1.8"
+        stroke-linejoin="round"/>
+  <path d="M14.5 24H33.5"
+        stroke="#3DDC97"
+        stroke-width="2.7"
+        stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="silverStroke" x1="8" y1="5" x2="40" y2="43" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6F7FB" stop-opacity="0.95"/>
+      <stop offset="0.48" stop-color="#9CA3AF" stop-opacity="0.72"/>
+      <stop offset="1" stop-color="#D8DDE6" stop-opacity="0.88"/>
+    </linearGradient>
+  </defs>
+</svg>

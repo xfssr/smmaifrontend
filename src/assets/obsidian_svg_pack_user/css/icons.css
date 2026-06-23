@@ -1,0 +1,7 @@
+/* Obsidian Silver UI — Icon styles */
+.obsidian-icon{display:inline-block;vertical-align:middle;flex-shrink:0;color:currentColor}
+.icon-soft{color:#9ca3af}.icon-bright{color:#f5f7fa}.icon-success{color:#3ddc97}.icon-error{color:#ff5c5c}.icon-warning{color:#f6c65b}
+.icon-pulse{animation:obsidianIconPulse 2.6s ease-in-out infinite}.icon-spin{animation:obsidianIconSpin 1.1s linear infinite}.icon-float{animation:obsidianIconFloat 3.2s ease-in-out infinite}
+@keyframes obsidianIconPulse{0%,100%{opacity:.62;transform:scale(1)}50%{opacity:1;transform:scale(1.06)}}
+@keyframes obsidianIconSpin{to{transform:rotate(360deg)}}
+@keyframes obsidianIconFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
