@@ -5,6 +5,11 @@ interface GenerationPipelineProps {
   /** Overall completion 0–100. Defaults to the reference value (62%). */
   progress?: number;
   stages?: readonly string[];
+  /**
+   * Override the active stage index (0-based) derived from real backend state.
+   * When provided, takes precedence over the progress-derived index.
+   */
+  activeStageIndex?: number;
 }
 
 /**
@@ -15,6 +20,7 @@ interface GenerationPipelineProps {
 export const GenerationPipeline: React.FC<GenerationPipelineProps> = ({
   progress = PIPELINE_PROGRESS,
   stages = PIPELINE_STAGES,
+  activeStageIndex: activeStageIndexProp,
 }) => {
   const [animatedProgress, setAnimatedProgress] = useState(0);
 
@@ -23,11 +29,13 @@ export const GenerationPipeline: React.FC<GenerationPipelineProps> = ({
     return () => cancelAnimationFrame(frame);
   }, [progress]);
 
-  // The active stage corresponds to how far the bar has filled.
-  const activeStageIndex = Math.min(
-    stages.length - 1,
-    Math.floor((progress / 100) * stages.length)
-  );
+  // Use the provided override if available, otherwise derive from progress.
+  const activeStageIndex = activeStageIndexProp !== undefined
+    ? Math.min(stages.length - 1, Math.max(0, activeStageIndexProp))
+    : Math.min(
+        stages.length - 1,
+        Math.floor((progress / 100) * stages.length)
+      );
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/30 p-3.5 shadow-inner">
