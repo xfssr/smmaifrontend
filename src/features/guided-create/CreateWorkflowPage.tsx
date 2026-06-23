@@ -7,7 +7,7 @@ import {
 import { api, type OpenRouterSmokeTestResponse } from '../../lib/api';
 import type { BrandCollectionBoard, BrandState, CombinedContentDirection, GeneratedReferenceCard, MediaSlotState, ChatMessage, SourceAnalysisBoard } from './types';
 import PipelineMotionSvg from './PipelineMotionSvg';
-import { CheckCircle2, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { CheckCircle2, Image as ImageIcon } from 'lucide-react';
 import TemplatePreviewCard from '../../components/TemplatePreviewCard';
 
 import { getHumanSlotLabel, UploadedAssetRail, type ActiveUpload } from './components/UploadedAssetRail';
@@ -18,7 +18,6 @@ import { useJobPolling } from './hooks/useJobPolling';
 import { AssetDetailDrawer } from './components/AssetDetailDrawer';
 import { CompactChatComposer } from './components/CompactChatComposer';
 import { GenerationPipeline } from './components/GenerationPipeline';
-import { AgentCategoryResults } from './components/AgentCategoryResults';
 import { PIPELINE_STAGES } from './components/agentCategoryData';
 
 type UploadResult = {
@@ -169,7 +168,7 @@ function deriveAgentStatusMessage(
   templateName: string,
 ): string {
   if (!isGenerating && !pipelineState) {
-    return `I'm preparing your marketing package from the selected template and uploaded assets.`;
+    return `Upload source photos and I'll prepare the content package.`;
   }
   switch (pipelineState) {
     case 'upload_preparation':
@@ -251,19 +250,19 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
       id: 'welcome',
       sender: 'ai',
       source: 'backend_agent',
-      text: "Hey, I'm your AI SMM Agent. I loaded the create pipeline. Send direction here or upload photos to start.",
+      text: "Upload source photos and I'll prepare the content package.",
     },
     {
       id: 'selected-template',
       sender: 'ai',
       source: 'local_ui',
-      text: `Selected template: ${template.name}. I’ll adapt the upload slots and creative direction to this format.`,
+      text: `Template selected: ${template.name}.`,
     },
     {
       id: 'upload-instruction',
       sender: 'ai',
       source: 'local_ui',
-      text: "Upload 1–5 photos. I’ll assign them to the right slots automatically.",
+      text: "Add 1–5 photos using the attach button below.",
     },
   ], [template.name]);
 
@@ -768,43 +767,18 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
 
         {/* 2. AI Agent Workflow — the main experience */}
         <section className="mx-3 sm:mx-4 mt-4 mb-2 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          {/* Agent label */}
-          <div className="flex items-center gap-2.5">
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#FB923C] to-[#F97316] text-black shadow-sm">
-              <Sparkles className="h-4 w-4" strokeWidth={2.25} />
-            </span>
-            <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-400">SMM Agent</span>
-            {/* Live status indicator */}
-            {(isGenerating || Boolean(smmAgentJobId)) && (
-              <div className="relative flex h-2 w-2 ml-0.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#F97316] opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#F97316]" />
-              </div>
-            )}
-          </div>
 
-          {/* Status message derived from backend job state */}
-          <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
-            {agentStatusMessage}
-          </div>
-
-          {/* Pipeline progress */}
-          <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 p-3 space-y-2">
-            <p className="text-xs leading-relaxed text-zinc-300">Generating your marketing package…</p>
-            <GenerationPipeline
-              progress={derivedProgress}
-              stages={PIPELINE_STAGES}
-              activeStageIndex={derivedStageIndex}
-            />
-          </div>
-
-          {/* Category groups intro */}
-          <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
-            I prepared the first content groups. Expand each category to review progress.
-          </div>
-
-          {/* 3. Expandable category accordions */}
-          <AgentCategoryResults />
+          {/* Pipeline progress — only shown after generation has actually started */}
+          {(isGenerating || Boolean(smmAgentJobId)) && (
+            <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 p-3 space-y-2">
+              <p className="text-xs leading-relaxed text-zinc-300">{agentStatusMessage}</p>
+              <GenerationPipeline
+                progress={derivedProgress}
+                stages={PIPELINE_STAGES}
+                activeStageIndex={derivedStageIndex}
+              />
+            </div>
+          )}
 
           {/* Preview collection & catalogue (shown when ready) */}
           <PreviewCollectionBoard
@@ -826,9 +800,9 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
             />
           )}
 
-          {/* Dynamic chat messages (excludes static initial messages) */}
+          {/* Chat messages — includes initial welcome messages (initial IDs are de-duped in
+              the state effect above) plus all subsequent user/agent messages in order */}
           {chatMessages
-            .filter((m) => !INITIAL_MESSAGE_IDS.has(m.id))
             .map((message) => {
               const isUser = message.sender === 'user';
               return (
