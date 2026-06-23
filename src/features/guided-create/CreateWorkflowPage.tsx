@@ -223,13 +223,14 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
   }, []);
 
   useEffect(() => {
-    chatFeedRef.current?.scrollTo({
-      top: chatFeedRef.current.scrollHeight,
+    const feed = chatFeedRef.current;
+    if (!feed) return;
+    feed.scrollTo({
+      top: feed.scrollHeight,
       behavior: 'smooth',
     });
   }, [chatMessages, isTyping]);
 
-  const heroCard = generatedReferenceCards.find((card) => card.campaignRole === 'hook' || card.title.includes('Hero')) || generatedReferenceCards[0];
   const polledJob = useJobPolling(smmAgentJobId);
   const fallbackPreviewJob = useMemo<JobTelemetry | null>(() => {
     if (!smmAgentJobId || generatedReferenceCards.length === 0) return null;
