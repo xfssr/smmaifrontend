@@ -614,9 +614,13 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
               <Bell className="h-4 w-4" />
               <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#FF9F1C]" />
             </button>
-            <div className="grid h-8 w-8 place-items-center rounded-xl border border-white/10 bg-[#FF9F1C]/15 text-[10px] font-bold uppercase tracking-wide text-[#FF9F1C]">
+            <button
+              type="button"
+              aria-label="Open profile menu"
+              className="grid h-8 w-8 place-items-center rounded-xl border border-white/10 bg-[#FF9F1C]/15 text-[10px] font-bold uppercase tracking-wide text-[#FF9F1C] transition-colors hover:bg-[#FF9F1C]/25 active:scale-95"
+            >
               {profileInitials}
-            </div>
+            </button>
           </div>
         </header>
 
