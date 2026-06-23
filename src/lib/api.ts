@@ -438,7 +438,7 @@ export type OpenRouterSmokeTestResponse = {
   };
 };
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
@@ -578,10 +578,22 @@ function isDevTokenPath(path: string) {
   return path === DEV_TOKEN_PATH || path.endsWith("/dev/token");
 }
 
-function persistDevIdentity(payload: { token: string; user?: { id?: string; workspaceId?: string | null } }) {
+function isAuthPath(path: string) {
+  return path === "/auth/login" || path.endsWith("/auth/login");
+}
+
+function persistIdentity(payload: { token: string; user?: { id?: string; workspaceId?: string | null } }) {
   localStorage.setItem("token", payload.token);
   if (payload.user?.id) localStorage.setItem("demoUser", payload.user.id);
   if (payload.user?.workspaceId) localStorage.setItem("workspaceId", payload.user.workspaceId);
+  meCache = null;
+}
+
+function clearIdentity() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("demoUser");
+  localStorage.removeItem("workspaceId");
+  meCache = null;
 }
 
 async function ensureDevToken() {
@@ -615,7 +627,7 @@ async function ensureDevToken() {
             : { error: { message: await response.text() } };
 
           if (response.ok && payload?.token) {
-            persistDevIdentity(payload);
+            persistIdentity(payload);
             setDevAuthStatus({ state: "active", message: "Dev session active" });
             return payload.token as string;
           }
@@ -655,8 +667,9 @@ export async function ensureDevSession() {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let token = localStorage.getItem("token");
   const adminKey = path.startsWith("/admin-api") ? getAdminAccessKey() : undefined;
+  const skipDevToken = isDevTokenPath(path) || isAuthPath(path);
 
-  if (!token && !isDevTokenPath(path) && isDevelopmentRuntime()) {
+  if (!token && !skipDevToken && isDevelopmentRuntime()) {
     try {
       token = await ensureDevToken();
     } catch {
@@ -680,7 +693,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   let res = await send(token);
 
-  if (res.status === 401 && isDevelopmentRuntime() && !isDevTokenPath(path)) {
+  if (res.status === 401 && isDevelopmentRuntime() && !skipDevToken) {
     localStorage.removeItem("token");
     try {
       token = await ensureDevToken();
@@ -700,7 +713,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new ApiError(`API error ${res.status}: ${res.statusText}`, res.status, requestId);
   }
 
-  if (isDevelopmentRuntime() && !isDevTokenPath(path) && token && devAuthStatus.state !== "active") {
+  if (isDevelopmentRuntime() && !skipDevToken && token && devAuthStatus.state !== "active") {
     setDevAuthStatus({ state: "active", message: "Dev session active" });
   }
 
@@ -862,6 +875,15 @@ async function getCurrentAccount() {
 export const api = {
   clientConfig: () => request<{ config: { apiBaseUrl: string } }>("/client-config"),
   devToken: () => request<{ token: string; user: any }>("/dev/token"),
+  login: async (login: string, password: string) => {
+    const result = await request<{ token: string; user: { id?: string; workspaceId?: string | null } }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ login, password }),
+    });
+    persistIdentity(result);
+    return result;
+  },
+  logout: clearIdentity,
   features: () => request<{ features: Record<string, boolean> }>("/features"),
   me: getCurrentAccount,
   credits: () => request<any>("/me/credits"),

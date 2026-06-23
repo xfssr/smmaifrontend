@@ -16,10 +16,11 @@ import PublicDisplayWallPage from './pages/PublicDisplayWallPage';
 import CreatePage from './pages/CreatePage';
 import TemplatesPage from './pages/TemplatesPage';
 import DiscoverPage from './pages/DiscoverPage';
+import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import AdminAiPage from './pages/AdminAiPage';
-import { api, ensureDevSession } from './lib/api';
+import { ApiError, api, ensureDevSession } from './lib/api';
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface Toast {
@@ -62,8 +63,14 @@ const ACTIVE_PAGES = new Set([
   'create',
   'templates',
   'discover',
+  'login',
   'not-found',
 ]);
+
+function hasStoredToken() {
+  if (typeof window === 'undefined') return false;
+  return Boolean(localStorage.getItem('token'));
+}
 
 function App() {
   return (
@@ -83,6 +90,7 @@ function AppContent() {
   const [account, setAccount] = useState<Account | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [authRequired, setAuthRequired] = useState(() => !import.meta.env.DEV && !hasStoredToken());
   const [toasts, setToasts] = useState<Toast[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
@@ -120,17 +128,23 @@ function AppContent() {
 
   // Fetch User Data
   useEffect(() => {
-    if (bootstrapping) return;
+    if (bootstrapping || authRequired) return;
     const fetchUser = async () => {
       try {
         const data = await api.me();
         setAccount(data);
+        setAuthRequired(false);
       } catch (err) {
         console.error("Failed to fetch user:", err);
+        if (err instanceof ApiError && (err.status === 401 || err.status === 404)) {
+          api.logout();
+          setAccount(null);
+          setAuthRequired(true);
+        }
       }
     };
     fetchUser();
-  }, [bootstrapping]);
+  }, [authRequired, bootstrapping]);
 
   const parseRoute = (pathname: string, search: string, hash: string) => {
     const normalizedSource = pathname === "/" || pathname === "" ? hash : pathname;
@@ -175,7 +189,7 @@ function AppContent() {
     setActiveId(activeId);
     setRoutePath(routePath);
     window.scrollTo(0, 0);
-  }, [location.pathname, location.search]);
+  }, [location.hash, location.pathname, location.search]);
 
   useEffect(() => {
     if (page === 'solution-detail' || page === 'solutions') {
@@ -198,6 +212,19 @@ function AppContent() {
 
   const handleNavigate = (p: string) => {
     navigate(p === 'home' ? '/' : `/${p}`);
+  };
+
+  const handleAuthenticated = (nextAccount: Account) => {
+    setAccount(nextAccount);
+    setAuthRequired(false);
+    if (page === 'login') navigate('/');
+  };
+
+  const handleLogout = () => {
+    api.logout();
+    setAccount(null);
+    setAuthRequired(true);
+    navigate('/login');
   };
 
   const renderPage = () => {
@@ -234,11 +261,15 @@ function AppContent() {
       );
     }
 
+    if (authRequired || page === 'login') {
+      return <LoginPage onAuthenticated={handleAuthenticated} />;
+    }
+
     switch (page) {
       case 'home': return <Home />;
       case 'solutions': return <SolutionsPage />;
-      case 'account': return <AccountPage onNavigate={handleNavigate} account={account} initialTab={slug || 'overview'} />;
-      case 'credits': return <AccountPage onNavigate={handleNavigate} account={account} initialTab="credits" />;
+      case 'account': return <AccountPage onNavigate={handleNavigate} onLogout={handleLogout} account={account} initialTab={slug || 'overview'} />;
+      case 'credits': return <AccountPage onNavigate={handleNavigate} onLogout={handleLogout} account={account} initialTab="credits" />;
       case 'my-videos': return <AccountPage onNavigate={handleNavigate} account={account} initialTab="videos" />;
       case 'admin-ai': return <AdminAiPage section={slug || 'dashboard'} onNavigate={handleNavigate} />;
       case 'qr-menu': return <QrMenuPage />;

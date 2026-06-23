@@ -6,11 +6,12 @@ import { formatMoney, useAccountBalance } from '../hooks/useAccountBalance';
 
 interface AccountPageProps {
   onNavigate: (page: string) => void;
+  onLogout?: () => void;
   account?: any;
   initialTab?: string;
 }
 
-const AccountPage: React.FC<AccountPageProps> = ({ onNavigate, account: initialAccount }) => {
+const AccountPage: React.FC<AccountPageProps> = ({ onNavigate, onLogout, account: initialAccount }) => {
   const [account, setAccount] = useState<any>(initialAccount);
   const [videos, setVideos] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -150,6 +151,7 @@ const AccountPage: React.FC<AccountPageProps> = ({ onNavigate, account: initialA
         </button>
         <button
           type="button"
+          onClick={onLogout}
           className="flex items-center justify-between rounded-2xl border border-red/20 bg-red-500/5 px-4 py-4 text-left text-red"
         >
           <span className="font-semibold">Logout</span>
