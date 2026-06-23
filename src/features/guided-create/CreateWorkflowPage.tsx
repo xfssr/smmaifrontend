@@ -800,7 +800,8 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
             />
           )}
 
-          {/* Chat messages — initial welcome messages + dynamic messages in order */}
+          {/* Chat messages — includes initial welcome messages (initial IDs are de-duped in
+              the state effect above) plus all subsequent user/agent messages in order */}
           {chatMessages
             .map((message) => {
               const isUser = message.sender === 'user';
