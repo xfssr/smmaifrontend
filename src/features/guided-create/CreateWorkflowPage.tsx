@@ -181,7 +181,7 @@ function deriveAgentStatusMessage(
     case 'image_synthesis':
       return `Generating content previews across all channels. This takes a moment…`;
     case 'awaiting_user_approval':
-      return `Your content package is ready! Review the categories below and pick your favourites.`;
+      return `Your content package is ready! Review the categories below and pick your favorites.`;
     case 'video_generation':
     case 'video_prompt_compiling':
     case 'video_generating':
@@ -214,7 +214,6 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
   finalVideoUrl,
   isSaving,
   isGenerating,
-  // businessName kept in props interface for future use
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatFeedRef = useRef<HTMLDivElement>(null);
@@ -863,9 +862,10 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
       {/* 4. Fixed bottom chat input */}
       <CompactChatComposer
         onSendMessage={handleSendMessage}
+        onAttach={() => openFilePicker(null)}
         agentStatus={agentStatus}
         agentError={agentError}
-        placeholder="Ask agent…"
+        placeholder="Ask the SMM Agent…"
       />
 
       <AssetDetailDrawer
