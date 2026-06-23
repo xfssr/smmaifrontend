@@ -649,7 +649,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
   const agentStatusMessage = deriveAgentStatusMessage(pipelineState, Boolean(isGenerating || smmAgentJobId), template.name);
 
   return (
-    <div data-testid="create-root" className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#06070B] text-white font-sans">
+    <div data-testid="create-root" className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#0A0A0C] text-white font-sans">
       <PipelineMotionSvg />
       <input
         type="file"
@@ -664,7 +664,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
       <div ref={chatFeedRef} className="min-h-0 flex-1 overflow-y-auto pb-36 scrollbar-none">
 
         {/* 1. Compact Selected Template Card */}
-        <section className="mx-3 sm:mx-4 mt-4 bg-[#111827] border border-white/[0.08] rounded-2xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
+        <section className="mx-3 sm:mx-4 mt-4 bg-white/[0.03] border border-white/5 rounded-2xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
           <div className="flex items-center justify-between px-4 pt-3.5">
             <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#F97316]">Selected Template</span>
             <span className="text-[9px] font-bold text-[#F97316] bg-[#F97316]/10 px-2.5 py-1 rounded-full border border-[#F97316]/25">
@@ -696,10 +696,10 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
                 {description || 'Restaurant marketing package'}
               </p>
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="inline-flex items-center rounded-full bg-white/5 border border-white/[0.08] px-2 py-0.5 text-[9px] font-semibold text-zinc-300">
+                <span className="inline-flex items-center rounded-full bg-white/5 border border-white/5 px-2 py-0.5 text-[9px] font-semibold text-zinc-300">
                   {template.outputAspectRatio || '9:16'}
                 </span>
-                <span className="inline-flex items-center rounded-full bg-white/5 border border-white/[0.08] px-2 py-0.5 text-[9px] font-semibold text-zinc-300">
+                <span className="inline-flex items-center rounded-full bg-white/5 border border-white/5 px-2 py-0.5 text-[9px] font-semibold text-zinc-300">
                   {durationLabel}
                 </span>
                 {onChangeTemplate && (
@@ -733,8 +733,8 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
 
         {/* Template selector */}
         {showTemplateSelector && availableTemplates.length > 0 && (
-          <section className="mx-3 sm:mx-4 mt-3 bg-[#111827] border border-white/[0.08] rounded-2xl p-4 space-y-3 animate-in slide-in-from-top-4 duration-500">
-            <div className="flex items-center justify-between border-b border-white/[0.05] pb-3">
+          <section className="mx-3 sm:mx-4 mt-3 bg-white/[0.03] border border-white/5 rounded-2xl p-4 space-y-3 animate-in slide-in-from-top-4 duration-500">
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
               <span className="text-[11px] font-bold uppercase tracking-widest text-[#F97316]">Select a Template</span>
               <button
                 onClick={() => setShowTemplateSelector(false)}
@@ -784,12 +784,12 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
           </div>
 
           {/* Status message derived from backend job state */}
-          <div className="rounded-2xl rounded-tl-sm border border-white/[0.08] bg-[#0B1020] px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
+          <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
             {agentStatusMessage}
           </div>
 
           {/* Pipeline progress */}
-          <div className="rounded-2xl rounded-tl-sm border border-white/[0.08] bg-[#0B1020] p-3 space-y-2">
+          <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 p-3 space-y-2">
             <p className="text-xs leading-relaxed text-zinc-300">Generating your marketing package…</p>
             <GenerationPipeline
               progress={derivedProgress}
@@ -799,7 +799,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
           </div>
 
           {/* Category groups intro */}
-          <div className="rounded-2xl rounded-tl-sm border border-white/[0.08] bg-[#0B1020] px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
+          <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
             I prepared the first content groups. Expand each category to review progress.
           </div>
 
@@ -837,7 +837,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
                     className={`max-w-[88%] rounded-xl px-3 py-2 text-xs leading-relaxed shadow-sm ${
                       isUser
                         ? 'border border-[#F97316]/20 bg-gradient-to-br from-[#F97316]/15 to-[#F97316]/5 text-amber-50 rounded-tr-sm'
-                        : 'border border-white/[0.08] bg-[#0B1020] text-zinc-300 rounded-tl-sm'
+                        : 'border border-white/10 bg-black/40 text-zinc-300 rounded-tl-sm'
                     }`}
                   >
                     {message.text}
@@ -849,7 +849,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
           {/* Typing indicator */}
           {isTyping && (
             <div className="flex justify-start animate-pulse">
-              <div className="max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed border border-white/[0.08] bg-[#0B1020] text-zinc-400 rounded-tl-sm flex items-center space-x-1.5">
+              <div className="max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed border border-white/10 bg-black/40 text-zinc-400 rounded-tl-sm flex items-center space-x-1.5">
                 <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                 <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                 <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />

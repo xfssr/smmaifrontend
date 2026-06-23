@@ -26,7 +26,7 @@ export const CompactChatComposer: React.FC<CompactChatComposerProps> = ({
   };
 
   return (
-    <div className="sticky bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-[#06070B] via-[#06070B]/95 to-transparent p-3">
+    <div className="sticky bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-[#0c0c0e] via-[#0c0c0e]/95 to-transparent p-3">
       <div className="w-full">
         {agentStatus === 'sending' && (
           <div className="flex items-center gap-1.5 mb-1.5 px-2 text-[11px] text-[#FB923C] animate-pulse">
@@ -41,7 +41,7 @@ export const CompactChatComposer: React.FC<CompactChatComposerProps> = ({
         )}
         <form
           onSubmit={handleSubmit}
-          className="flex items-end gap-2 rounded-2xl border border-white/[0.08] bg-[#111827] px-2 py-1.5 shadow-2xl transition-colors focus-within:border-[#F97316]/40"
+          className="glass-panel flex items-end gap-2 rounded-2xl px-2 py-1.5 shadow-2xl transition-colors focus-within:border-[#F97316]/40"
         >
           {/* Attachment icon */}
           {onAttach && (
