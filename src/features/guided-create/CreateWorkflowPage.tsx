@@ -7,7 +7,7 @@ import {
 import { api, type OpenRouterSmokeTestResponse } from '../../lib/api';
 import type { BrandCollectionBoard, BrandState, CombinedContentDirection, GeneratedReferenceCard, MediaSlotState, ChatMessage, SourceAnalysisBoard } from './types';
 import PipelineMotionSvg from './PipelineMotionSvg';
-import { Bell, CheckCircle2, Image as ImageIcon, Menu, Sparkles } from 'lucide-react';
+import { CheckCircle2, Image as ImageIcon, Sparkles } from 'lucide-react';
 import TemplatePreviewCard from '../../components/TemplatePreviewCard';
 
 import { getHumanSlotLabel, UploadedAssetRail, type ActiveUpload } from './components/UploadedAssetRail';
@@ -19,7 +19,7 @@ import { AssetDetailDrawer } from './components/AssetDetailDrawer';
 import { CompactChatComposer } from './components/CompactChatComposer';
 import { GenerationPipeline } from './components/GenerationPipeline';
 import { AgentCategoryResults } from './components/AgentCategoryResults';
-import { PIPELINE_PROGRESS } from './components/agentCategoryData';
+import { PIPELINE_STAGES } from './components/agentCategoryData';
 
 type UploadResult = {
   slotId: string;
@@ -118,6 +118,82 @@ function buildFallbackSlots(): MediaSlotState[] {
   }));
 }
 
+/**
+ * Maps a backend pipelineState string to a PIPELINE_STAGES index (0-based).
+ * This is a UI-only mapping of verified backend status to a user-friendly stage.
+ */
+function pipelineStateToStageIndex(pipelineState: string | undefined): number {
+  switch (pipelineState) {
+    case 'upload_preparation': return 0;
+    case 'picture_analysis': return 0;
+    case 'brand_analysis': return 1;
+    case 'image_synthesis': return 2;
+    case 'awaiting_user_approval': return 3;
+    case 'video_generation':
+    case 'video_prompt_compiling':
+    case 'video_generating': return 3;
+    case 'video_ready':
+    case 'completed': return 4;
+    default: return 0;
+  }
+}
+
+/**
+ * Maps a backend pipelineState to an approximate overall progress percentage.
+ * Derived from real backend stages, not invented.
+ */
+function pipelineStateToProgress(pipelineState: string | undefined, isGenerating: boolean): number {
+  if (!pipelineState && !isGenerating) return 5;
+  switch (pipelineState) {
+    case 'upload_preparation': return 10;
+    case 'picture_analysis': return 25;
+    case 'brand_analysis': return 45;
+    case 'image_synthesis': return 65;
+    case 'awaiting_user_approval': return 82;
+    case 'video_generation':
+    case 'video_prompt_compiling': return 88;
+    case 'video_generating': return 92;
+    case 'video_ready':
+    case 'completed': return 100;
+    default: return isGenerating ? 10 : 5;
+  }
+}
+
+/**
+ * Returns a user-friendly agent message derived from backend job status.
+ * Never exposes raw status strings, job IDs, or technical internals.
+ */
+function deriveAgentStatusMessage(
+  pipelineState: string | undefined,
+  isGenerating: boolean,
+  templateName: string,
+): string {
+  if (!isGenerating && !pipelineState) {
+    return `I'm preparing your marketing package from the selected template and uploaded assets.`;
+  }
+  switch (pipelineState) {
+    case 'upload_preparation':
+      return `I'm preparing your marketing package from "${templateName}" and your uploaded assets.`;
+    case 'picture_analysis':
+      return `Analyzing your uploaded assets and extracting the visual brief…`;
+    case 'brand_analysis':
+      return `Building brand identity and visual direction from your assets…`;
+    case 'image_synthesis':
+      return `Generating content previews across all channels. This takes a moment…`;
+    case 'awaiting_user_approval':
+      return `Your content package is ready! Review the categories below and pick your favourites.`;
+    case 'video_generation':
+    case 'video_prompt_compiling':
+    case 'video_generating':
+      return `Rendering your final video. Almost there…`;
+    case 'video_ready':
+    case 'completed':
+      return `Generation complete. Your content is ready to review and download.`;
+    default:
+      return `Generating your marketing package from "${templateName}"…`;
+  }
+}
+
 export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
   template,
   availableTemplates = [],
@@ -138,7 +214,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
   finalVideoUrl,
   isSaving,
   isGenerating,
-  businessName,
+  // businessName kept in props interface for future use
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatFeedRef = useRef<HTMLDivElement>(null);
@@ -170,14 +246,6 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
     : uploadCount > 0;
   const canGenerate = requiredComplete && uploadCount > 0 && !isSaving;
   const openSlotsForUpload = allSlots.filter((slot) => !completedSlotIds.has(slot.id));
-  const hasStartedWorkflow = uploadCount > 0 || Boolean(smmAgentJobId) || Boolean(isGenerating);
-  const profileInitials = useMemo(() => {
-    const source = (businessName || '').trim();
-    if (!source) return 'SA';
-    const parts = source.split(/\s+/).filter(Boolean);
-    const initials = parts.slice(0, 2).map((part) => part[0]).join('');
-    return (initials || source.slice(0, 2)).toUpperCase();
-  }, [businessName]);
 
   const initialChatMessages = useMemo<ChatMessage[]>(() => [
     {
@@ -576,8 +644,13 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
     }
   };
 
+  const pipelineState = polledJob?.pipelineState ?? job?.pipelineState;
+  const derivedProgress = pipelineStateToProgress(pipelineState, Boolean(isGenerating));
+  const derivedStageIndex = pipelineStateToStageIndex(pipelineState);
+  const agentStatusMessage = deriveAgentStatusMessage(pipelineState, Boolean(isGenerating || smmAgentJobId), template.name);
+
   return (
-    <div data-testid="create-root" className="relative flex h-[100dvh] min-h-[100dvh] flex-col overflow-hidden bg-[#0A0A0C] text-white font-sans">
+    <div data-testid="create-root" className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#06070B] text-white font-sans">
       <PipelineMotionSvg />
       <input
         type="file"
@@ -588,187 +661,153 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
         className="hidden"
       />
 
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col w-full mx-auto max-w-2xl overflow-hidden">
-        <header className="z-20 flex shrink-0 items-center justify-between border-b border-white/5 bg-[#0A0A0C]/85 backdrop-blur-xl px-4 py-3 sm:px-5 sm:py-4">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <button
-              type="button"
-              aria-label="Open menu"
-              className="grid h-8 w-8 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition-colors hover:text-white active:scale-95"
-            >
-              <Menu className="h-4 w-4" />
-            </button>
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#FB923C] to-[#FF9F1C] text-black shadow-sm">
-                <Sparkles className="h-4 w-4" strokeWidth={2.25} />
-              </span>
-              <h1 className="mb-0 truncate text-sm font-bold tracking-tight text-zinc-100">SMM AI Studio</h1>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              aria-label="Notifications"
-              className="relative grid h-8 w-8 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition-colors hover:text-white active:scale-95"
-            >
-              <Bell className="h-4 w-4" />
-              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#FF9F1C]" />
-            </button>
-            <button
-              type="button"
-              aria-label="Open profile menu"
-              className="grid h-8 w-8 place-items-center rounded-xl border border-white/10 bg-[#FF9F1C]/15 text-[10px] font-bold uppercase tracking-wide text-[#FF9F1C] transition-colors hover:bg-[#FF9F1C]/25 active:scale-95"
-            >
-              {profileInitials}
-            </button>
-          </div>
-        </header>
+      {/* Scrollable content — chatFeedRef points here so auto-scroll works for new messages */}
+      <div ref={chatFeedRef} className="min-h-0 flex-1 overflow-y-auto pb-36 scrollbar-none">
 
-        <main className="min-h-0 flex-1 space-y-5 overflow-y-auto pb-32 pt-4 scrollbar-none">
-          <section className="mx-3 sm:mx-4 bg-white/[0.03] border border-white/5 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
-            <div className="flex items-center justify-between px-4 pt-3.5 sm:px-5">
-              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#FF9F1C]">Selected Template</span>
-              <span className="text-[9px] font-bold text-[#FF9F1C] bg-[#FF9F1C]/10 px-2.5 py-1 rounded-full border border-[#FF9F1C]/25">
-                {uploadCount} / {maxAssets}
-              </span>
-            </div>
+        {/* 1. Compact Selected Template Card */}
+        <section className="mx-3 sm:mx-4 mt-4 bg-[#111827] border border-white/[0.08] rounded-2xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
+          <div className="flex items-center justify-between px-4 pt-3.5">
+            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#F97316]">Selected Template</span>
+            <span className="text-[9px] font-bold text-[#F97316] bg-[#F97316]/10 px-2.5 py-1 rounded-full border border-[#F97316]/25">
+              {uploadCount} / {maxAssets}
+            </span>
+          </div>
 
-            <div className="flex gap-3 sm:gap-4 items-start px-4 pt-3 sm:px-5">
-              {previewImage ? (
-                <div className="relative w-16 h-22 sm:w-20 sm:h-28 rounded-xl sm:rounded-2xl overflow-hidden border border-white/10 bg-black shrink-0 shadow-lg">
-                  <img src={previewImage} className="w-full h-full object-cover" alt={template.name} />
-                </div>
-              ) : (
-                <div className="w-16 h-22 sm:w-20 sm:h-28 rounded-xl sm:rounded-2xl border border-dashed border-white/10 bg-black/20 flex items-center justify-center shrink-0">
-                  <ImageIcon className="w-5 h-5 sm:w-6 sm:h-6 text-zinc-600" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0 space-y-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-base font-bold text-white truncate max-w-full">{template.name}</h2>
-                  <span className="inline-flex items-center rounded-full bg-emerald-400/10 border border-emerald-400/25 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">
-                    Active
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 border border-emerald-400/25 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
-                    <CheckCircle2 className="h-3 w-3" strokeWidth={2.5} /> OK
-                  </span>
-                </div>
-                <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
-                  {description || 'Restaurant marketing package'}
-                </p>
-                <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                  <span className="inline-flex items-center rounded-full bg-white/5 border border-white/5 px-2.5 py-1 text-[9px] font-semibold text-zinc-300">
-                    {template.outputAspectRatio || '9:16'}
-                  </span>
-                  <span className="inline-flex items-center rounded-full bg-white/5 border border-white/5 px-2.5 py-1 text-[9px] font-semibold text-zinc-300">
-                    {durationLabel}
-                  </span>
-                  {onChangeTemplate && (
-                    <button
-                      type="button"
-                      onClick={() => setShowTemplateSelector((prev) => !prev)}
-                      className="ml-auto shrink-0 rounded-xl border border-[#FF9F1C]/20 bg-[#FF9F1C]/10 hover:bg-[#FF9F1C]/20 px-3 py-1.5 text-[10px] font-bold text-[#FF9F1C] shadow-sm transition-all active:scale-95"
-                    >
-                      Change Template
-                    </button>
-                  )}
-                </div>
+          <div className="flex gap-3 items-start px-4 pt-2 pb-3">
+            {previewImage ? (
+              <div className="relative w-14 h-[72px] rounded-xl overflow-hidden border border-white/10 bg-black shrink-0 shadow-lg">
+                <img src={previewImage} className="w-full h-full object-cover" alt={template.name} />
+              </div>
+            ) : (
+              <div className="w-14 h-[72px] rounded-xl border border-dashed border-white/10 bg-black/20 flex items-center justify-center shrink-0">
+                <ImageIcon className="w-5 h-5 text-zinc-600" />
+              </div>
+            )}
+            <div className="flex-1 min-w-0 space-y-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h2 className="text-sm font-bold text-white truncate max-w-full">{template.name}</h2>
+                <span className="inline-flex items-center rounded-full bg-emerald-400/10 border border-emerald-400/25 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">
+                  Active
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 border border-emerald-400/25 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
+                  <CheckCircle2 className="h-3 w-3" strokeWidth={2.5} /> OK
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed">
+                {description || 'Restaurant marketing package'}
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex items-center rounded-full bg-white/5 border border-white/[0.08] px-2 py-0.5 text-[9px] font-semibold text-zinc-300">
+                  {template.outputAspectRatio || '9:16'}
+                </span>
+                <span className="inline-flex items-center rounded-full bg-white/5 border border-white/[0.08] px-2 py-0.5 text-[9px] font-semibold text-zinc-300">
+                  {durationLabel}
+                </span>
+                {onChangeTemplate && (
+                  <button
+                    type="button"
+                    onClick={() => setShowTemplateSelector((prev) => !prev)}
+                    className="ml-auto shrink-0 rounded-xl border border-[#F97316]/20 bg-[#F97316]/10 hover:bg-[#F97316]/20 px-2.5 py-1 text-[10px] font-bold text-[#F97316] shadow-sm transition-all active:scale-95"
+                  >
+                    Change Template
+                  </button>
+                )}
               </div>
             </div>
+          </div>
 
-            <div className="mt-3 border-t border-white/5">
-              {showSlots && (
-                <UploadedAssetRail
-                  visibleSlots={visibleSlots}
-                  activeUploads={activeUploads}
-                  uploadCount={uploadCount}
-                  maxAssets={maxAssets}
-                  onReplace={onReplace}
-                  onAddClick={() => openFilePicker(null)}
-                  onSlotClick={(slot) => setSelectedSlotForDetail(slot)}
-                />
-              )}
-            </div>
+          {/* Compact uploaded asset rail inside card */}
+          <div className="border-t border-white/[0.05]">
+            {showSlots && (
+              <UploadedAssetRail
+                visibleSlots={visibleSlots}
+                activeUploads={activeUploads}
+                uploadCount={uploadCount}
+                maxAssets={maxAssets}
+                onReplace={onReplace}
+                onAddClick={() => openFilePicker(null)}
+                onSlotClick={(slot) => setSelectedSlotForDetail(slot)}
+              />
+            )}
+          </div>
+        </section>
 
-            <div className="border-t border-white/5 px-4 py-3 sm:px-5 flex items-center justify-between gap-3">
-              <span className="text-[10px] text-zinc-500 leading-relaxed">
-                {requiredComplete ? 'Required assets confirmed.' : 'Upload at least the required photo first.'}
-              </span>
+        {/* Template selector */}
+        {showTemplateSelector && availableTemplates.length > 0 && (
+          <section className="mx-3 sm:mx-4 mt-3 bg-[#111827] border border-white/[0.08] rounded-2xl p-4 space-y-3 animate-in slide-in-from-top-4 duration-500">
+            <div className="flex items-center justify-between border-b border-white/[0.05] pb-3">
+              <span className="text-[11px] font-bold uppercase tracking-widest text-[#F97316]">Select a Template</span>
               <button
-                type="button"
-                disabled={!canGenerate || Boolean(smmAgentJobId) || Boolean(isGenerating)}
-                onClick={() => {
-                  appendSystemMessageOnce('manual-generate-start', 'Starting preview generation.');
-                  onCreateJob();
-                }}
-                className="rounded-xl border border-[#FF9F1C]/20 bg-[#FF9F1C]/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-[#FF9F1C] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all"
+                onClick={() => setShowTemplateSelector(false)}
+                className="text-[10px] font-black uppercase tracking-wider text-zinc-500 hover:text-white transition-colors"
               >
-                Generate
+                Close
               </button>
             </div>
+            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none [scrollbar-width:none]">
+              {availableTemplates.map((availableTemplate) => {
+                const isSelected = availableTemplate.id === template.id || availableTemplate.slug === template.slug;
+                return (
+                  <TemplatePreviewCard
+                    key={availableTemplate.id}
+                    template={availableTemplate}
+                    variant="pipeline"
+                    selected={isSelected}
+                    onTry={(slug) => {
+                      const matched = availableTemplates.find((item) => item.slug === slug);
+                      if (matched && onChangeTemplate) {
+                        onChangeTemplate(matched);
+                        setShowTemplateSelector(false);
+                      }
+                    }}
+                  />
+                );
+              })}
+            </div>
           </section>
+        )}
 
-          {showTemplateSelector && availableTemplates.length > 0 && (
-            <section className="mx-3 sm:mx-4 bg-white/[0.03] border border-white/5 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-2xl space-y-4 animate-in slide-in-from-top-4 duration-500">
-              <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                <span className="text-[11px] font-bold uppercase tracking-widest text-[#FF9F1C]">Select a Template</span>
-                <button
-                  onClick={() => setShowTemplateSelector(false)}
-                  className="text-[10px] font-black uppercase tracking-wider text-zinc-500 hover:text-white transition-colors"
-                >
-                  Close
-                </button>
+        {/* 2. AI Agent Workflow — the main experience */}
+        <section className="mx-3 sm:mx-4 mt-4 mb-2 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          {/* Agent label */}
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#FB923C] to-[#F97316] text-black shadow-sm">
+              <Sparkles className="h-4 w-4" strokeWidth={2.25} />
+            </span>
+            <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-400">SMM Agent</span>
+            {/* Live status indicator */}
+            {(isGenerating || Boolean(smmAgentJobId)) && (
+              <div className="relative flex h-2 w-2 ml-0.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#F97316] opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#F97316]" />
               </div>
-              <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-                {availableTemplates.map((availableTemplate) => {
-                  const isSelected = availableTemplate.id === template.id || availableTemplate.slug === template.slug;
-                  return (
-                    <TemplatePreviewCard
-                      key={availableTemplate.id}
-                      template={availableTemplate}
-                      variant="pipeline"
-                      selected={isSelected}
-                      onTry={(slug) => {
-                        const matched = availableTemplates.find((item) => item.slug === slug);
-                        if (matched && onChangeTemplate) {
-                          onChangeTemplate(matched);
-                          setShowTemplateSelector(false);
-                        }
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            </section>
-          )}
+            )}
+          </div>
 
-          {hasStartedWorkflow && (
-            <section className="mx-3 sm:mx-4 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-300">
-              <div className="flex items-center gap-2.5">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#FB923C] to-[#FF9F1C] text-black shadow-sm">
-                  <Sparkles className="h-4 w-4" strokeWidth={2.25} />
-                </span>
-                <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-400">SMM Agent</span>
-              </div>
+          {/* Status message derived from backend job state */}
+          <div className="rounded-2xl rounded-tl-sm border border-white/[0.08] bg-[#0B1020] px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
+            {agentStatusMessage}
+          </div>
 
-              <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
-                I’m analyzing your selected template and uploaded assets, then generating your
-                restaurant marketing package.
-              </div>
+          {/* Pipeline progress */}
+          <div className="rounded-2xl rounded-tl-sm border border-white/[0.08] bg-[#0B1020] p-3 space-y-2">
+            <p className="text-xs leading-relaxed text-zinc-300">Generating your marketing package…</p>
+            <GenerationPipeline
+              progress={derivedProgress}
+              stages={PIPELINE_STAGES}
+              activeStageIndex={derivedStageIndex}
+            />
+          </div>
 
-              <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 p-3 space-y-3">
-                <p className="text-xs leading-relaxed text-zinc-300">Generating your restaurant marketing package…</p>
-                <GenerationPipeline progress={PIPELINE_PROGRESS} />
-              </div>
+          {/* Category groups intro */}
+          <div className="rounded-2xl rounded-tl-sm border border-white/[0.08] bg-[#0B1020] px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
+            I prepared the first content groups. Expand each category to review progress.
+          </div>
 
-              <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
-                I prepared the first content groups. Expand each category to review progress.
-              </div>
+          {/* 3. Expandable category accordions */}
+          <AgentCategoryResults />
 
-              <AgentCategoryResults />
-            </section>
-          )}
-
+          {/* Preview collection & catalogue (shown when ready) */}
           <PreviewCollectionBoard
             sourceAnalysisBoard={sourceAnalysisBoard}
             brandCollectionBoard={brandCollectionBoard}
@@ -788,56 +827,46 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
             />
           )}
 
-          <section className="mx-3 sm:mx-4 bg-white/[0.03] border border-white/5 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-2xl space-y-3 sm:space-y-4">
-            <div className="flex items-center justify-between border-b border-white/5 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="relative flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FF9F1C] opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#FF9F1C]" />
+          {/* Dynamic chat messages (excludes static initial messages) */}
+          {chatMessages
+            .filter((m) => !INITIAL_MESSAGE_IDS.has(m.id))
+            .map((message) => {
+              const isUser = message.sender === 'user';
+              return (
+                <div key={message.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[88%] rounded-xl px-3 py-2 text-xs leading-relaxed shadow-sm ${
+                      isUser
+                        ? 'border border-[#F97316]/20 bg-gradient-to-br from-[#F97316]/15 to-[#F97316]/5 text-amber-50 rounded-tr-sm'
+                        : 'border border-white/[0.08] bg-[#0B1020] text-zinc-300 rounded-tl-sm'
+                    }`}
+                  >
+                    {message.text}
+                  </div>
                 </div>
-                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-widest text-zinc-400">SMM Agent Chat</span>
+              );
+            })}
+
+          {/* Typing indicator */}
+          {isTyping && (
+            <div className="flex justify-start animate-pulse">
+              <div className="max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed border border-white/[0.08] bg-[#0B1020] text-zinc-400 rounded-tl-sm flex items-center space-x-1.5">
+                <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
-              <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-600">Mobile workflow</span>
             </div>
-
-            <div ref={chatFeedRef} className="max-h-[320px] sm:max-h-[420px] space-y-3.5 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-              {chatMessages.map((message) => {
-                const isUser = message.sender === 'user';
-                return (
-                  <div key={message.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                    <div
-                      className={`max-w-[88%] rounded-xl sm:rounded-2xl px-3 py-2 sm:px-4 sm:py-3 text-xs sm:text-sm leading-relaxed shadow-sm ${
-                        isUser
-                          ? 'border border-[#FF9F1C]/20 bg-gradient-to-br from-[#FF9F1C]/15 to-[#FF9F1C]/5 text-amber-50 rounded-tr-sm'
-                          : 'border border-white/10 bg-black/40 text-zinc-300 rounded-tl-sm'
-                      }`}
-                    >
-                      {message.text}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {isTyping && (
-                <div className="flex justify-start animate-pulse">
-                  <div className="max-w-[85%] rounded-xl sm:rounded-2xl px-3 py-2 sm:px-4 sm:py-3 text-xs sm:text-sm leading-relaxed border border-white/10 bg-black/40 text-zinc-400 rounded-tl-sm flex items-center space-x-1.5">
-                    <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
-        </main>
-
-        <CompactChatComposer
-          onSendMessage={handleSendMessage}
-          agentStatus={agentStatus}
-          agentError={agentError}
-          placeholder="Message the SMM Agent..."
-        />
+          )}
+        </section>
       </div>
+
+      {/* 4. Fixed bottom chat input */}
+      <CompactChatComposer
+        onSendMessage={handleSendMessage}
+        agentStatus={agentStatus}
+        agentError={agentError}
+        placeholder="Ask agent…"
+      />
 
       <AssetDetailDrawer
         slot={selectedSlotForDetail}
