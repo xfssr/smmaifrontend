@@ -7,7 +7,7 @@ import {
 import { api, type OpenRouterSmokeTestResponse } from '../../lib/api';
 import type { BrandCollectionBoard, BrandState, CombinedContentDirection, GeneratedReferenceCard, MediaSlotState, ChatMessage, SourceAnalysisBoard } from './types';
 import PipelineMotionSvg from './PipelineMotionSvg';
-import { Image as ImageIcon } from 'lucide-react';
+import { Bell, CheckCircle2, Image as ImageIcon, Menu, Sparkles } from 'lucide-react';
 import TemplatePreviewCard from '../../components/TemplatePreviewCard';
 
 import { getHumanSlotLabel, UploadedAssetRail, type ActiveUpload } from './components/UploadedAssetRail';
@@ -17,6 +17,9 @@ import { PreviewCollectionBoard } from './components/PreviewCollectionBoard';
 import { useJobPolling } from './hooks/useJobPolling';
 import { AssetDetailDrawer } from './components/AssetDetailDrawer';
 import { CompactChatComposer } from './components/CompactChatComposer';
+import { GenerationPipeline } from './components/GenerationPipeline';
+import { AgentCategoryResults } from './components/AgentCategoryResults';
+import { PIPELINE_PROGRESS } from './components/agentCategoryData';
 
 type UploadResult = {
   slotId: string;
@@ -135,6 +138,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
   finalVideoUrl,
   isSaving,
   isGenerating,
+  businessName,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatFeedRef = useRef<HTMLDivElement>(null);
@@ -166,6 +170,14 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
     : uploadCount > 0;
   const canGenerate = requiredComplete && uploadCount > 0 && !isSaving;
   const openSlotsForUpload = allSlots.filter((slot) => !completedSlotIds.has(slot.id));
+  const hasStartedWorkflow = uploadCount > 0 || Boolean(smmAgentJobId) || Boolean(isGenerating);
+  const profileInitials = useMemo(() => {
+    const source = (businessName || '').trim();
+    if (!source) return 'SA';
+    const parts = source.split(/\s+/).filter(Boolean);
+    const initials = parts.slice(0, 2).map((part) => part[0]).join('');
+    return (initials || source.slice(0, 2)).toUpperCase();
+  }, [businessName]);
 
   const initialChatMessages = useMemo<ChatMessage[]>(() => [
     {
@@ -578,67 +590,117 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col w-full mx-auto max-w-2xl overflow-hidden">
         <header className="z-20 flex shrink-0 items-center justify-between border-b border-white/5 bg-[#0A0A0C]/85 backdrop-blur-xl px-4 py-3 sm:px-5 sm:py-4">
-          <div
-            onClick={() => onChangeTemplate && setShowTemplateSelector((prev) => !prev)}
-            className="flex min-w-0 items-center gap-3 cursor-pointer hover:opacity-85 transition-opacity select-none"
-          >
-            {previewImage && (
-              <div className="w-9 h-9 rounded-lg overflow-hidden border border-white/10 bg-black shrink-0 shadow-md">
-                <img src={previewImage} className="w-full h-full object-cover" alt="" />
-              </div>
-            )}
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Video reel creation</div>
-              <h1 className="mb-0 mt-0.5 truncate text-sm font-bold text-zinc-100">{template.name}</h1>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <button
+              type="button"
+              aria-label="Open menu"
+              className="grid h-8 w-8 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition-colors hover:text-white active:scale-95"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#FB923C] to-[#FF9F1C] text-black shadow-sm">
+                <Sparkles className="h-4 w-4" strokeWidth={2.25} />
+              </span>
+              <h1 className="mb-0 truncate text-sm font-bold tracking-tight text-zinc-100">SMM AI Studio</h1>
             </div>
           </div>
-          {onChangeTemplate && (
+          <div className="flex shrink-0 items-center gap-2">
             <button
-              onClick={() => setShowTemplateSelector((prev) => !prev)}
-              className="shrink-0 rounded-xl border border-[#FF9F1C]/20 bg-[#FF9F1C]/10 hover:bg-[#FF9F1C]/20 px-3 py-1.5 text-[10px] sm:text-xs font-bold text-[#FF9F1C] shadow-sm transition-all active:scale-95 select-none"
+              type="button"
+              aria-label="Notifications"
+              className="relative grid h-8 w-8 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition-colors hover:text-white active:scale-95"
             >
-              Change
+              <Bell className="h-4 w-4" />
+              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#FF9F1C]" />
             </button>
-          )}
+            <div className="grid h-8 w-8 place-items-center rounded-xl border border-white/10 bg-[#FF9F1C]/15 text-[10px] font-bold uppercase tracking-wide text-[#FF9F1C]">
+              {profileInitials}
+            </div>
+          </div>
         </header>
 
         <main className="min-h-0 flex-1 space-y-5 overflow-y-auto pb-32 pt-4 scrollbar-none">
-          <section
-            onClick={() => onChangeTemplate && setShowTemplateSelector((prev) => !prev)}
-            className="mx-3 sm:mx-4 bg-white/[0.03] border border-white/5 rounded-2xl sm:rounded-3xl p-3 sm:p-4 shadow-2xl flex gap-3 sm:gap-4 items-center animate-in fade-in slide-in-from-top-4 duration-500 cursor-pointer hover:bg-white/5 transition-all select-none"
-          >
-            {previewImage ? (
-              <div className="relative w-16 h-22 sm:w-20 sm:h-28 rounded-xl sm:rounded-2xl overflow-hidden border border-white/10 bg-black shrink-0 shadow-lg">
-                <img src={previewImage} className="w-full h-full object-cover" alt={template.name} />
-              </div>
-            ) : (
-              <div className="w-16 h-22 sm:w-20 sm:h-28 rounded-xl sm:rounded-2xl border border-dashed border-white/10 bg-black/20 flex items-center justify-center shrink-0">
-                <ImageIcon className="w-5 h-5 sm:w-6 sm:h-6 text-zinc-600" />
-              </div>
-            )}
-            <div className="flex-1 min-w-0 space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[9px] font-black uppercase tracking-[0.2em] text-[#FF9F1C]">Active Template</div>
-                {onChangeTemplate && (
-                  <div className="text-[9px] font-black uppercase tracking-[0.1em] text-zinc-500 bg-white/5 px-2 py-0.5 rounded-full border border-white/5 hover:text-white transition-colors">
-                    Change
-                  </div>
-                )}
-              </div>
-              <h2 className="text-base font-bold text-white truncate">{template.name}</h2>
-              {description && (
-                <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
-                  {description}
-                </p>
+          <section className="mx-3 sm:mx-4 bg-white/[0.03] border border-white/5 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="flex items-center justify-between px-4 pt-3.5 sm:px-5">
+              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#FF9F1C]">Selected Template</span>
+              <span className="text-[9px] font-bold text-[#FF9F1C] bg-[#FF9F1C]/10 px-2.5 py-1 rounded-full border border-[#FF9F1C]/25">
+                {uploadCount} / {maxAssets}
+              </span>
+            </div>
+
+            <div className="flex gap-3 sm:gap-4 items-start px-4 pt-3 sm:px-5">
+              {previewImage ? (
+                <div className="relative w-16 h-22 sm:w-20 sm:h-28 rounded-xl sm:rounded-2xl overflow-hidden border border-white/10 bg-black shrink-0 shadow-lg">
+                  <img src={previewImage} className="w-full h-full object-cover" alt={template.name} />
+                </div>
+              ) : (
+                <div className="w-16 h-22 sm:w-20 sm:h-28 rounded-xl sm:rounded-2xl border border-dashed border-white/10 bg-black/20 flex items-center justify-center shrink-0">
+                  <ImageIcon className="w-5 h-5 sm:w-6 sm:h-6 text-zinc-600" />
+                </div>
               )}
-              <div className="flex flex-wrap gap-2 pt-0.5">
-                <span className="inline-flex items-center rounded-full bg-white/5 border border-white/5 px-2.5 py-1 text-[9px] font-semibold text-zinc-300">
-                  {template.outputAspectRatio || '9:16'}
-                </span>
-                <span className="inline-flex items-center rounded-full bg-white/5 border border-white/5 px-2.5 py-1 text-[9px] font-semibold text-zinc-300">
-                  {durationLabel}
-                </span>
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base font-bold text-white truncate max-w-full">{template.name}</h2>
+                  <span className="inline-flex items-center rounded-full bg-emerald-400/10 border border-emerald-400/25 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">
+                    Active
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 border border-emerald-400/25 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
+                    <CheckCircle2 className="h-3 w-3" strokeWidth={2.5} /> OK
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
+                  {description || 'Restaurant marketing package'}
+                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  <span className="inline-flex items-center rounded-full bg-white/5 border border-white/5 px-2.5 py-1 text-[9px] font-semibold text-zinc-300">
+                    {template.outputAspectRatio || '9:16'}
+                  </span>
+                  <span className="inline-flex items-center rounded-full bg-white/5 border border-white/5 px-2.5 py-1 text-[9px] font-semibold text-zinc-300">
+                    {durationLabel}
+                  </span>
+                  {onChangeTemplate && (
+                    <button
+                      type="button"
+                      onClick={() => setShowTemplateSelector((prev) => !prev)}
+                      className="ml-auto shrink-0 rounded-xl border border-[#FF9F1C]/20 bg-[#FF9F1C]/10 hover:bg-[#FF9F1C]/20 px-3 py-1.5 text-[10px] font-bold text-[#FF9F1C] shadow-sm transition-all active:scale-95"
+                    >
+                      Change Template
+                    </button>
+                  )}
+                </div>
               </div>
+            </div>
+
+            <div className="mt-3 border-t border-white/5">
+              {showSlots && (
+                <UploadedAssetRail
+                  visibleSlots={visibleSlots}
+                  activeUploads={activeUploads}
+                  uploadCount={uploadCount}
+                  maxAssets={maxAssets}
+                  onReplace={onReplace}
+                  onAddClick={() => openFilePicker(null)}
+                  onSlotClick={(slot) => setSelectedSlotForDetail(slot)}
+                />
+              )}
+            </div>
+
+            <div className="border-t border-white/5 px-4 py-3 sm:px-5 flex items-center justify-between gap-3">
+              <span className="text-[10px] text-zinc-500 leading-relaxed">
+                {requiredComplete ? 'Required assets confirmed.' : 'Upload at least the required photo first.'}
+              </span>
+              <button
+                type="button"
+                disabled={!canGenerate || Boolean(smmAgentJobId) || Boolean(isGenerating)}
+                onClick={() => {
+                  appendSystemMessageOnce('manual-generate-start', 'Starting preview generation.');
+                  onCreateJob();
+                }}
+                className="rounded-xl border border-[#FF9F1C]/20 bg-[#FF9F1C]/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-[#FF9F1C] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all"
+              >
+                Generate
+              </button>
             </div>
           </section>
 
@@ -676,53 +738,39 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
             </section>
           )}
 
-          <section className="mx-3 sm:mx-4 bg-white/[0.03] border border-white/5 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between border-b border-white/5 px-4 py-3 sm:px-5">
-              <div>
-                <div className="text-[10px] sm:text-[11px] font-black uppercase tracking-widest text-zinc-500">Upload slots</div>
-                <div className="mt-1 text-xs text-zinc-400">Photos stay visible while chat orchestrates the workflow.</div>
+          {hasStartedWorkflow && (
+            <section className="mx-3 sm:mx-4 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-300">
+              <div className="flex items-center gap-2.5">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#FB923C] to-[#FF9F1C] text-black shadow-sm">
+                  <Sparkles className="h-4 w-4" strokeWidth={2.25} />
+                </span>
+                <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-400">SMM Agent</span>
               </div>
-              <span className="text-[9px] font-bold text-[#FF9F1C] bg-[#FF9F1C]/10 px-2.5 py-1 rounded-full border border-[#FF9F1C]/25">
-                {uploadCount} / {maxAssets}
-              </span>
-            </div>
 
-            {showSlots && (
-              <UploadedAssetRail
-                visibleSlots={visibleSlots}
-                activeUploads={activeUploads}
-                uploadCount={uploadCount}
-                maxAssets={maxAssets}
-                onReplace={onReplace}
-                onAddClick={() => openFilePicker(null)}
-                onSlotClick={(slot) => setSelectedSlotForDetail(slot)}
-              />
-            )}
+              <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
+                I’m analyzing your selected template and uploaded assets, then generating your
+                restaurant marketing package.
+              </div>
 
-            <div className="border-t border-white/5 px-4 py-3 sm:px-5 flex items-center justify-between gap-3">
-              <span className="text-[10px] text-zinc-500 leading-relaxed">
-                {requiredComplete ? 'Required assets confirmed.' : 'Upload at least the required photo first.'}
-              </span>
-              <button
-                type="button"
-                disabled={!canGenerate || Boolean(smmAgentJobId) || Boolean(isGenerating)}
-                onClick={() => {
-                  appendSystemMessageOnce('manual-generate-start', 'Starting preview generation.');
-                  onCreateJob();
-                }}
-                className="rounded-xl border border-[#FF9F1C]/20 bg-[#FF9F1C]/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-[#FF9F1C] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all"
-              >
-                Generate
-              </button>
-            </div>
-          </section>
+              <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 p-3 space-y-3">
+                <p className="text-xs leading-relaxed text-zinc-300">Generating your restaurant marketing package…</p>
+                <GenerationPipeline progress={PIPELINE_PROGRESS} />
+              </div>
+
+              <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 px-3.5 py-3 text-xs leading-relaxed text-zinc-300">
+                I prepared the first content groups. Expand each category to review progress.
+              </div>
+
+              <AgentCategoryResults />
+            </section>
+          )}
 
           <PreviewCollectionBoard
             sourceAnalysisBoard={sourceAnalysisBoard}
             brandCollectionBoard={brandCollectionBoard}
           />
 
-          {uploadCount > 0 && (
+          {previewReady && (
             <WorkflowCatalogueCanvas
               job={job}
               onApproveAndStartVideo={(selectedReferenceImageIds, selectedAspectRatio) => {
