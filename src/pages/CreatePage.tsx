@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { api, ApiError, resolveMediaUrl, selectAssetPreviewUrl, type SmmAgentOutputs, type SmmAgentVideoAspectRatio } from '../lib/api';
+import { api, ApiError, isAbsoluteHttpUrl, resolveMediaUrl, selectAssetPreviewUrl, type SmmAgentOutputs, type SmmAgentVideoAspectRatio } from '../lib/api';
 import ConfirmedAssetStrip from '../components/ConfirmedAssetStrip';
 import RecommendationPanel from '../components/RecommendationPanel';
 import SelectedSolutionBanner from '../components/SelectedSolutionBanner';
@@ -51,9 +51,7 @@ function getAssetPreviewUrl(asset: any): string | undefined {
   );
 }
 
-function assetFromSessionItem(item: any, mediaSlots: TemplateMediaSlot[]): ConfirmedSlotAsset {
-  const slot = mediaSlots.find(s => s.slotId === item.slotId);
-  void slot;
+function assetFromSessionItem(item: any, _mediaSlots: TemplateMediaSlot[]): ConfirmedSlotAsset {
   const analysis = item.asset?.analysis;
   const browserUrl = resolveMediaUrl(item.asset?.browserUrl);
   const thumbnailUrl = resolveMediaUrl(item.asset?.thumbnailUrl);
@@ -100,7 +98,7 @@ async function runUploadStage<T>(stage: UploadStage, path: string, fn: () => Pro
   } catch (err: any) {
     const status = err instanceof ApiError ? err.status : (typeof err?.status === 'number' ? err.status : undefined);
     const detail = err?.message || 'request failed';
-    console.error(`[upload] ${stage} status=${status ?? 'n/a'} path=${path}: ${detail}`, err);
+    console.error('[upload] stage failed', { stage, status: status ?? 'n/a', path, detail }, err);
     const wrapped = new UploadStageError(detail, stage, status, path);
     (wrapped as any).nextPhotoSuggestion = err?.nextPhotoSuggestion;
     throw wrapped;
@@ -519,7 +517,7 @@ const CreatePage: React.FC = () => {
   ) => {
     // previewUrl passed here is the final public preview URL (browserUrl/thumbnailUrl)
     // for confirmed assets, or a blob URL only while upload is still in progress.
-    const isPublicPreview = /^https?:\/\//i.test(previewUrl || '');
+    const isPublicPreview = isAbsoluteHttpUrl(previewUrl || '');
     setConfirmedAssets(prev => {
       const filtered = prev.filter(a => a.slotId !== slotId);
       const updated = [...filtered, {

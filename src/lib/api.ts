@@ -7,7 +7,7 @@ const DEV_TOKEN_PATH = "/dev/token";
 // only once direct browser PUT to object storage has been verified.
 const UPLOAD_STRATEGY = (import.meta.env.VITE_UPLOAD_STRATEGY || "backend_proxy").trim();
 
-function isAbsoluteHttpUrl(value: string): boolean {
+export function isAbsoluteHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
@@ -527,6 +527,10 @@ export function validateApiBase(): { ok: boolean; message?: string } {
 }
 
 if (typeof window !== "undefined") {
+  // Validate eagerly on module load so a misconfigured production deployment
+  // (relative "/api" base) surfaces a clear console error immediately, before
+  // any upload is attempted. Vite inlines VITE_* env at build time, so values
+  // are already finalized here.
   validateApiBase();
 }
 
