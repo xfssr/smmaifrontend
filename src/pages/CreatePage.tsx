@@ -105,6 +105,21 @@ async function runUploadStage<T>(stage: UploadStage, path: string, fn: () => Pro
   }
 }
 
+export function getGuidedUploadPrerequisiteError(input: {
+  sessionId?: string | null;
+  workspaceId?: string | null;
+  templateMediaConfig?: Partial<TemplateMediaConfig> | null;
+}): string | undefined {
+  const missing = [
+    input.sessionId ? undefined : 'sessionId',
+    input.workspaceId ? undefined : 'workspaceId',
+    input.templateMediaConfig ? undefined : 'templateMediaConfig',
+  ].filter(Boolean);
+
+  if (missing.length === 0) return undefined;
+  return `Upload session is not ready: missing ${missing.join(', ')}.`;
+}
+
 function getNextOpenSlot(mediaSlots: TemplateMediaSlot[], confirmedAssets: ConfirmedSlotAsset[]): TemplateMediaSlot | undefined {
   const confirmedSlotIds = new Set(confirmedAssets.map(a => a.slotId));
 
@@ -534,7 +549,23 @@ const CreatePage: React.FC = () => {
   };
 
   const handleGuidedUpload = async (slotId: string | undefined, file: File) => {
-    if (!sessionId || !workspaceId || !templateMediaConfig) return;
+    const prerequisiteError = getGuidedUploadPrerequisiteError({ sessionId, workspaceId, templateMediaConfig });
+    if (prerequisiteError || !sessionId || !workspaceId || !templateMediaConfig) {
+      const message = prerequisiteError || 'Upload session is not ready.';
+      console.error('Guided upload blocked:', {
+        missingSessionId: !sessionId,
+        missingWorkspaceId: !workspaceId,
+        missingTemplateMediaConfig: !templateMediaConfig,
+      });
+      return {
+        slotId: slotId || 'error',
+        status: 'error' as const,
+        message,
+        nextPhotoSuggestion: 'Wait for the upload session to finish loading, then try again.',
+        analysisTitle: 'Upload not ready',
+        analysisDescription: message,
+      };
+    }
 
     createPerfMark('upload_start');
     const previewUrl = URL.createObjectURL(file);

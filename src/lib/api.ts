@@ -513,6 +513,13 @@ export function evaluateApiBase(apiBase: string, production: boolean): { ok: boo
   return { ok: true };
 }
 
+export function assertApiBaseCanRequest(apiBase: string, production: boolean): void {
+  const result = evaluateApiBase(apiBase, production);
+  if (!result.ok) {
+    throw new Error(result.message || "Invalid API base URL.");
+  }
+}
+
 // Validate that the API base is an absolute backend URL in production. A
 // relative "/api" base in production means VITE_API_BASE_URL was not set on the
 // static site and every API/upload request would target the frontend origin
@@ -796,6 +803,8 @@ export async function ensureDevSession() {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  assertApiBaseCanRequest(API_BASE, isProductionRuntime());
+
   let token = localStorage.getItem("token");
   const adminKey = path.startsWith("/admin-api") ? getAdminAccessKey() : undefined;
   const skipDevToken = isDevTokenPath(path) || isAuthPath(path);

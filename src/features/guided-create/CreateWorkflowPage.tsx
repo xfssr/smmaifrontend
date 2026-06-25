@@ -31,6 +31,25 @@ type UploadResult = {
   message?: string;
 };
 
+type SuccessfulUploadResult = UploadResult & {
+  status: 'accepted';
+  assetId: string;
+  previewUrl: string;
+};
+
+export function isSuccessfulUploadResult(
+  result: UploadResult | void | undefined,
+  assignedSlotId?: string,
+): result is SuccessfulUploadResult {
+  return Boolean(
+    result &&
+    result.status === 'accepted' &&
+    assignedSlotId &&
+    result.assetId &&
+    result.previewUrl,
+  );
+}
+
 export function previewUrlForSlot(slot?: MediaSlotState) {
   if (!slot) return undefined;
   // UI image priority: browserUrl > thumbnailUrl > server/blob previewUrl.
@@ -530,10 +549,18 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
 
       try {
         const result = await onUpload(plannedSlotId, file);
+        if (!result) {
+          throw new Error('Upload handler returned no result. Session/workspace/template may not be ready.');
+        }
         const assignedSlotId = result?.slotId && result.slotId !== 'unassigned' ? result.slotId : plannedSlotId;
         const assignedSlot = allSlots.find((slot) => slot.id === assignedSlotId) || plannedSlot;
         const assignedSlotLabel = assignedSlotId ? getHumanSlotLabel(assignedSlotId, assignedSlot?.title) : plannedSlotLabel;
-        const accepted = result?.status !== 'error' && result?.status !== 'needs_retake';
+        const accepted = isSuccessfulUploadResult(result, assignedSlotId);
+        const failureMessage = result.message || (
+          result.status === 'unassigned'
+            ? 'Photo uploaded, but no matching slot was available.'
+            : 'Upload did not return an accepted asset preview.'
+        );
 
         setChatMessages((prev) => prev.map((message) => {
           if (message.id !== statusMsgId) return message;
@@ -541,7 +568,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
             ...message,
             text: accepted
               ? `Analyzed ${assignedSlotLabel}. ${result?.analysisTitle || 'Visual direction confirmed.'}`
-              : `Needs retake for ${assignedSlotLabel}: ${result?.message || 'Check image details.'}`,
+              : `Could not confirm ${assignedSlotLabel}: ${failureMessage}`,
           };
         }));
 
@@ -550,12 +577,12 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
           source: 'local_ui',
           text: accepted
             ? `Photo added to ${assignedSlotLabel}. I’m analyzing the visual direction.`
-            : (result?.message || `Asset confirmed. Upload more photos or send Generate.`),
+            : failureMessage,
         });
 
         setActiveUploads((prev) => prev.map((upload) => upload.localId === localId ? { ...upload, status: accepted ? 'done' : 'failed' } : upload));
 
-        if (accepted && assignedSlotId && result?.assetId && result?.previewUrl) {
+        if (accepted && assignedSlotId) {
           onConfirmSlot?.(
             assignedSlotId,
             result.assetId,

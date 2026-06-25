@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   api,
+  assertApiBaseCanRequest,
   evaluateApiBase,
   resolveMediaUrl,
   selectAssetPreviewUrl,
@@ -70,6 +71,20 @@ describe('evaluateApiBase', () => {
 
   it('allows a relative base in development', () => {
     expect(evaluateApiBase('/api', false).ok).toBe(true);
+  });
+});
+
+describe('assertApiBaseCanRequest', () => {
+  it('throws before fetch when production API base is relative', () => {
+    expect(() => assertApiBaseCanRequest('/api', true)).toThrow(
+      'VITE_API_BASE_URL is missing',
+    );
+  });
+
+  it('allows an absolute production API base', () => {
+    expect(() =>
+      assertApiBaseCanRequest('https://smmaibackend.onrender.com/api', true),
+    ).not.toThrow();
   });
 });
 
