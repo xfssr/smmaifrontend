@@ -1,6 +1,7 @@
 import React from 'react';
 import { CheckCircle2, Image as ImageIcon, Loader2, Plus, X } from 'lucide-react';
 import type { MediaSlotState } from '../types';
+import { resolveMediaUrl } from '../../../lib/api';
 
 export type ActiveUpload = {
   localId: string;
@@ -22,8 +23,13 @@ interface UploadedAssetRailProps {
 
 export function previewUrlForSlot(slot?: MediaSlotState) {
   if (!slot) return undefined;
-  if (slot.previewUrl?.startsWith('blob:')) return slot.previewUrl;
-  return slot.assetId ? `/api/assets/${slot.assetId}/view` : slot.previewUrl;
+  // UI image priority: browserUrl > thumbnailUrl > server/blob previewUrl.
+  // Never reconstruct the protected /api/assets/:id/view route for previews.
+  return (
+    resolveMediaUrl(slot.browserUrl) ||
+    resolveMediaUrl(slot.thumbnailUrl) ||
+    resolveMediaUrl(slot.previewUrl)
+  );
 }
 
 export const getHumanSlotLabel = (slotId: string, title?: string): string => {

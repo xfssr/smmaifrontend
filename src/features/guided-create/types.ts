@@ -11,6 +11,8 @@ export type MediaSlotState = {
   status: MediaSlotStatus;
   file?: File;
   previewUrl?: string;
+  browserUrl?: string;
+  thumbnailUrl?: string;
   assetId?: string;
   analysis?: {
     shortSummary?: string;

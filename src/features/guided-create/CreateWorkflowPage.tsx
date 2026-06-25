@@ -4,7 +4,7 @@ import {
   templateDurationLabel,
   type TemplateCatalogItem,
 } from '../../lib/templateExperience';
-import { api, type OpenRouterSmokeTestResponse } from '../../lib/api';
+import { api, resolveMediaUrl, type OpenRouterSmokeTestResponse } from '../../lib/api';
 import type { BrandCollectionBoard, BrandState, CombinedContentDirection, GeneratedReferenceCard, MediaSlotState, ChatMessage, SourceAnalysisBoard } from './types';
 import PipelineMotionSvg from './PipelineMotionSvg';
 import { CheckCircle2, Image as ImageIcon } from 'lucide-react';
@@ -33,8 +33,13 @@ type UploadResult = {
 
 export function previewUrlForSlot(slot?: MediaSlotState) {
   if (!slot) return undefined;
-  if (slot.previewUrl?.startsWith('blob:')) return slot.previewUrl;
-  return slot.assetId ? `/api/assets/${slot.assetId}/view` : slot.previewUrl;
+  // UI image priority: browserUrl > thumbnailUrl > server/blob previewUrl.
+  // Never reconstruct the protected /api/assets/:id/view route for previews.
+  return (
+    resolveMediaUrl(slot.browserUrl) ||
+    resolveMediaUrl(slot.thumbnailUrl) ||
+    resolveMediaUrl(slot.previewUrl)
+  );
 }
 
 interface CreateWorkflowPageProps {
@@ -394,10 +399,16 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
           res.session.assets.forEach((asset: any) => {
             if (asset.slotId && asset.assetId) {
               const analysis = asset.asset?.analysis;
+              const previewUrl =
+                resolveMediaUrl(asset.asset?.browserUrl) ||
+                resolveMediaUrl(asset.asset?.thumbnailUrl) ||
+                resolveMediaUrl(asset.asset?.url) ||
+                resolveMediaUrl(asset.asset?.viewUrl) ||
+                '';
               onConfirmSlot(
                 asset.slotId,
                 asset.assetId,
-                asset.asset?.viewUrl || `/api/assets/${asset.assetId}/view`,
+                previewUrl,
                 analysis?.title || 'Confirmed Asset',
                 analysis?.description || ''
               );

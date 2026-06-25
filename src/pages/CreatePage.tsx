@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { api, type SmmAgentOutputs, type SmmAgentVideoAspectRatio } from '../lib/api';
+import { api, ApiError, resolveMediaUrl, type SmmAgentOutputs, type SmmAgentVideoAspectRatio } from '../lib/api';
 import ConfirmedAssetStrip from '../components/ConfirmedAssetStrip';
 import RecommendationPanel from '../components/RecommendationPanel';
 import SelectedSolutionBanner from '../components/SelectedSolutionBanner';
@@ -40,21 +40,75 @@ const defaultMediaConfig: TemplateMediaConfig = {
 
 function getAssetPreviewUrl(asset: any): string | undefined {
   if (!asset) return undefined;
-  if (asset.previewUrl?.startsWith('blob:')) return asset.previewUrl;
-  const assetId = asset.assetId || asset.id || asset.asset?.id;
-  return assetId ? `/api/assets/${assetId}/view` : undefined;
+  // UI image priority: browserUrl > thumbnailUrl > server/blob previewUrl.
+  // Never reconstruct the protected /api/assets/:id/view route for previews.
+  return (
+    resolveMediaUrl(asset.browserUrl) ||
+    resolveMediaUrl(asset.thumbnailUrl) ||
+    resolveMediaUrl(asset.previewUrl) ||
+    resolveMediaUrl(asset.asset?.browserUrl) ||
+    resolveMediaUrl(asset.asset?.thumbnailUrl)
+  );
 }
 
 function assetFromSessionItem(item: any, mediaSlots: TemplateMediaSlot[]): ConfirmedSlotAsset {
   const slot = mediaSlots.find(s => s.slotId === item.slotId);
+  void slot;
   const analysis = item.asset?.analysis;
+  const browserUrl = resolveMediaUrl(item.asset?.browserUrl);
+  const thumbnailUrl = resolveMediaUrl(item.asset?.thumbnailUrl);
+  // Restore preview from backend-provided URLs only. Do not reconstruct the
+  // protected /api/assets/:id/view route.
+  const previewUrl =
+    browserUrl ||
+    thumbnailUrl ||
+    resolveMediaUrl(item.asset?.url) ||
+    resolveMediaUrl(item.asset?.viewUrl);
   return {
     assetId: item.assetId,
     slotId: item.slotId!,
-    previewUrl: item.asset?.viewUrl || `/api/assets/${item.assetId}/view`,
+    previewUrl,
+    browserUrl,
+    thumbnailUrl,
     analysisTitle: analysis?.title || 'Confirmed asset',
     analysisDescription: analysis?.description || 'Confirmed asset',
   };
+}
+
+type UploadStage =
+  | 'create_asset_failed'
+  | 'upload_file_failed'
+  | 'complete_asset_failed'
+  | 'analyze_asset_failed'
+  | 'attach_to_session_failed'
+  | 'create_job_failed'
+  | 'start_preview_failed';
+
+class UploadStageError extends Error {
+  constructor(
+    message: string,
+    public readonly stage: UploadStage,
+    public readonly httpStatus?: number,
+    public readonly path?: string,
+  ) {
+    super(message);
+    this.name = 'UploadStageError';
+  }
+}
+
+// Run a single upload-pipeline stage, surfacing the real failed stage with HTTP
+// status and request path in console logs (and on the thrown error for the UI).
+async function runUploadStage<T>(stage: UploadStage, path: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    const status = err instanceof ApiError ? err.status : (typeof err?.status === 'number' ? err.status : undefined);
+    const detail = err?.message || 'request failed';
+    console.error(`[upload] ${stage} status=${status ?? 'n/a'} path=${path}: ${detail}`, err);
+    const wrapped = new UploadStageError(detail, stage, status, path);
+    (wrapped as any).nextPhotoSuggestion = err?.nextPhotoSuggestion;
+    throw wrapped;
+  }
 }
 
 function getNextOpenSlot(mediaSlots: TemplateMediaSlot[], confirmedAssets: ConfirmedSlotAsset[]): TemplateMediaSlot | undefined {
@@ -271,6 +325,8 @@ const CreatePage: React.FC = () => {
         status: confirmed ? 'complete' : 'locked',
         assetId: confirmed?.assetId,
         previewUrl: confirmed?.previewUrl,
+        browserUrl: confirmed?.browserUrl,
+        thumbnailUrl: confirmed?.thumbnailUrl,
         analysis: confirmed ? { shortSummary: confirmed.analysisTitle || 'Asset confirmed' } : undefined
       };
     });
@@ -465,12 +521,16 @@ const CreatePage: React.FC = () => {
     title: string,
     description: string
   ) => {
+    // previewUrl passed here is the final public preview URL (browserUrl/thumbnailUrl)
+    // for confirmed assets, or a blob URL only while upload is still in progress.
+    const isPublicPreview = /^https?:\/\//i.test(previewUrl || '');
     setConfirmedAssets(prev => {
       const filtered = prev.filter(a => a.slotId !== slotId);
       const updated = [...filtered, {
         assetId,
         slotId,
         previewUrl,
+        browserUrl: isPublicPreview ? previewUrl : undefined,
         analysisTitle: title,
         analysisDescription: description,
       }];
@@ -487,26 +547,47 @@ const CreatePage: React.FC = () => {
     localBlobUrlsRef.current.add(previewUrl);
 
     try {
-      const asset = await api.createAsset({
-        workspaceId,
-        file,
-        metadata: {
-          source: 'guided_upload',
-          templateId: selectedTemplate?.id,
-          templateSlug: selectedTemplate?.slug || templateMediaConfig.templateSlug,
-          uploadSessionId: sessionId,
-          ...(slotId ? { slotId } : {}),
-        },
-      });
+      const asset = await runUploadStage('create_asset_failed', '/assets/upload', () =>
+        api.createAsset({
+          workspaceId,
+          file,
+          metadata: {
+            source: 'guided_upload',
+            templateId: selectedTemplate?.id,
+            templateSlug: selectedTemplate?.slug || templateMediaConfig.templateSlug,
+            uploadSessionId: sessionId,
+            ...(slotId ? { slotId } : {}),
+          },
+        }),
+      );
       createPerfMark('asset_created');
 
-      await api.uploadFile(asset.uploadUrl, file, asset.id);
+      await runUploadStage('upload_file_failed', `/assets/${asset.id}/upload`, () =>
+        api.uploadFile(asset.uploadUrl, file, asset.id),
+      );
       createPerfMark('file_uploaded');
-      await api.completeAsset(asset.id);
+
+      const completed = await runUploadStage('complete_asset_failed', `/assets/${asset.id}/complete`, () =>
+        api.completeAsset(asset.id),
+      );
       createPerfMark('asset_completed');
 
+      // Public, browser-safe preview URL for the uploaded asset. Prefer the
+      // canonical fields returned by /complete, then fall back to /upload.
+      const publicPreviewUrl =
+        resolveMediaUrl(completed.browserUrl) ||
+        resolveMediaUrl(completed.thumbnailUrl) ||
+        resolveMediaUrl(asset.browserUrl) ||
+        resolveMediaUrl(asset.thumbnailUrl);
+
+      if (!publicPreviewUrl) {
+        throw new Error('Backend did not return browserUrl/thumbnailUrl for uploaded asset.');
+      }
+
       createPerfMark('analysis_start');
-      const res = await api.analyzeAsset(asset.id);
+      const res = await runUploadStage('analyze_asset_failed', `/smm-agent/assets/${asset.id}/analyze`, () =>
+        api.analyzeAsset(asset.id),
+      );
       applyPreviewCollectionBoards(res);
       createPerfMark('analysis_completed');
       const analysis = res.analysis;
@@ -527,7 +608,7 @@ const CreatePage: React.FC = () => {
           return {
             slotId: 'unassigned',
             assetId: asset.id,
-            previewUrl,
+            previewUrl: publicPreviewUrl,
             analysisTitle: analysis?.title || 'Unassigned Photo',
             analysisDescription: analysis?.description || '',
             status: 'unassigned' as const,
@@ -537,17 +618,29 @@ const CreatePage: React.FC = () => {
         await api.updateAssetAnalysis(asset.id, { confirmed: true });
         createPerfMark('asset_confirmed');
 
-        const sessionResponse = await api.addAssetToSession(sessionId, asset.id, resolvedSlotId);
+        const sessionResponse = await runUploadStage('attach_to_session_failed', `/uploads/sessions/${sessionId}/assets`, () =>
+          api.addAssetToSession(sessionId, asset.id, resolvedSlotId),
+        );
         applyPreviewCollectionBoards(sessionResponse);
         createPerfMark('asset_attached_to_session');
 
-        handleConfirmSlot(resolvedSlotId, asset.id, previewUrl, analysis?.title || 'Confirmed Asset', analysis?.description || '');
+        // Prefer a backend-confirmed public URL from the session asset if present,
+        // otherwise use the public URL captured after complete. Never the blob.
+        const sessionAsset = Array.isArray(sessionResponse?.session?.assets)
+          ? sessionResponse.session.assets.find((a: any) => a.assetId === asset.id)
+          : undefined;
+        const finalPreviewUrl =
+          resolveMediaUrl(sessionAsset?.asset?.browserUrl) ||
+          resolveMediaUrl(sessionAsset?.asset?.thumbnailUrl) ||
+          publicPreviewUrl;
+
+        handleConfirmSlot(resolvedSlotId, asset.id, finalPreviewUrl, analysis?.title || 'Confirmed Asset', analysis?.description || '');
 
         createPerfMark('ui_slot_updated');
         return {
           slotId: resolvedSlotId,
           assetId: asset.id,
-          previewUrl,
+          previewUrl: finalPreviewUrl,
           analysisTitle: analysis?.title || 'Confirmed Asset',
           analysisDescription: analysis?.description || '',
           nextPhotoSuggestion: analysis?.vision?.nextPhotoSuggestion || analysis?.nextPhotoSuggestion || undefined,
@@ -573,14 +666,21 @@ const CreatePage: React.FC = () => {
       throw new Error(suggestion ? `${rejectionMessage} ${suggestion}` : rejectionMessage);
 
     } catch (err: any) {
-      console.error("Guided upload failed:", err);
+      const stage = err instanceof UploadStageError ? err.stage : undefined;
+      const status = err instanceof UploadStageError ? err.httpStatus : undefined;
+      const path = err instanceof UploadStageError ? err.path : undefined;
+      const baseMessage = err?.message || 'Upload failed';
+      const message = stage
+        ? `${stage}${status ? ` (${status})` : ''}${path ? ` ${path}` : ''}: ${baseMessage}`
+        : baseMessage;
+      console.error('Guided upload failed:', { stage, status, path, message }, err);
       return {
         slotId: slotId || 'error',
         status: 'error' as const,
-        message: err.message || 'Upload failed',
+        message,
         nextPhotoSuggestion: (err as any).nextPhotoSuggestion || 'Try a clearer photo for the required slot.',
         analysisTitle: 'Upload failed',
-        analysisDescription: err.message || '',
+        analysisDescription: message,
       };
     }
   };
@@ -679,25 +779,29 @@ const CreatePage: React.FC = () => {
       setApprovedReferenceImageIds([]);
       setFinalVideoUrl(null);
 
-      const created = await api.createSmmAgentJob({
-        workspaceId,
-        uploadSessionId: sessionId,
-        templateId: selectedTemplate.id,
-        templateSlug: selectedTemplate.slug,
-        assetIds: confirmedAssets.map(asset => asset.assetId),
-        businessType: businessName,
-        contentGoal: selectedSolution?.name || selectedTemplate?.name || shootingCategory || 'AI content video',
-        userContext: {
-          businessName: brand.businessName || businessName,
-          offer: selectedSolution?.name || selectedTemplate?.name || shootingCategory || 'AI content video',
-          brandMode: brand.mode,
-          brandLogoAssetId: logoAssetId,
-          brandText: brand.businessName
-        },
-      });
+      const created = await runUploadStage('create_job_failed', '/smm-agent/jobs', () =>
+        api.createSmmAgentJob({
+          workspaceId,
+          uploadSessionId: sessionId,
+          templateId: selectedTemplate.id,
+          templateSlug: selectedTemplate.slug,
+          assetIds: confirmedAssets.map(asset => asset.assetId),
+          businessType: businessName,
+          contentGoal: selectedSolution?.name || selectedTemplate?.name || shootingCategory || 'AI content video',
+          userContext: {
+            businessName: brand.businessName || businessName,
+            offer: selectedSolution?.name || selectedTemplate?.name || shootingCategory || 'AI content video',
+            brandMode: brand.mode,
+            brandLogoAssetId: logoAssetId,
+            brandText: brand.businessName
+          },
+        }),
+      );
       const jobId = created.jobId;
       setSmmAgentJobId(jobId);
-      await api.startSmmAgentPreview(jobId);
+      await runUploadStage('start_preview_failed', `/smm-agent/jobs/${jobId}/start`, () =>
+        api.startSmmAgentPreview(jobId),
+      );
       const outputs = await waitForSmmAgentOutputs(
         jobId,
         next => Boolean(next.generatedReferenceCards?.length),
@@ -707,8 +811,15 @@ const CreatePage: React.FC = () => {
       invalidateAccountBalance();
       setIsSaving(false);
     } catch (err: any) {
-      console.error("Job creation failed:", err);
-      setError(err.message || 'Failed to start generation. Please check your assets and try again.');
+      const stage = err instanceof UploadStageError ? err.stage : undefined;
+      const status = err instanceof UploadStageError ? err.httpStatus : undefined;
+      const path = err instanceof UploadStageError ? err.path : undefined;
+      const baseMessage = err?.message || 'Failed to start generation. Please check your assets and try again.';
+      const message = stage
+        ? `${stage}${status ? ` (${status})` : ''}${path ? ` ${path}` : ''}: ${baseMessage}`
+        : baseMessage;
+      console.error("Job creation failed:", { stage, status, path, message }, err);
+      setError(message);
       setState('recommending');
       setIsSaving(false);
     }

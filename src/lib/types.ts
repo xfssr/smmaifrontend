@@ -22,6 +22,8 @@ export type ConfirmedSlotAsset = {
   assetId: string;
   slotId: string;
   previewUrl?: string;
+  browserUrl?: string;
+  thumbnailUrl?: string;
   analysisTitle: string;
   analysisDescription: string;
   detectedObjects?: string[];

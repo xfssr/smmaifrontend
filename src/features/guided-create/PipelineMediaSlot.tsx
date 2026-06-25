@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertCircle, Image as ImageIcon, Plus, RefreshCw } from 'lucide-react';
 import type { MediaSlotState } from './types';
+import { resolveMediaUrl } from '../../lib/api';
 
 interface PipelineMediaSlotProps {
   slot: MediaSlotState;
@@ -15,9 +16,10 @@ const PipelineMediaSlot: React.FC<PipelineMediaSlotProps> = ({ slot, onSelectUpl
   const isAnalyzing = slot.status === 'analyzing';
   const isComplete = slot.status === 'complete';
   const isError = slot.status === 'error';
-  const previewUrl = slot.assetId && !slot.previewUrl?.startsWith('blob:')
-    ? `/api/assets/${slot.assetId}/view`
-    : slot.previewUrl;
+  const previewUrl =
+    resolveMediaUrl(slot.browserUrl) ||
+    resolveMediaUrl(slot.thumbnailUrl) ||
+    resolveMediaUrl(slot.previewUrl);
 
   const handleSlotClick = () => {
     if ((isActive || isLocked || isError) && !isUploading && !isAnalyzing) {
