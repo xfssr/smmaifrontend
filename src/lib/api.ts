@@ -502,21 +502,28 @@ function isProductionRuntime() {
 }
 
 let apiBaseValidated = false;
+// Pure check: in production the API base must be an absolute backend URL.
+export function evaluateApiBase(apiBase: string, production: boolean): { ok: boolean; message?: string } {
+  if (production && !isAbsoluteHttpUrl(apiBase)) {
+    return {
+      ok: false,
+      message: "VITE_API_BASE_URL is missing. Production frontend must use backend API URL.",
+    };
+  }
+  return { ok: true };
+}
+
 // Validate that the API base is an absolute backend URL in production. A
 // relative "/api" base in production means VITE_API_BASE_URL was not set on the
 // static site and every API/upload request would target the frontend origin
 // (e.g. https://smmaifrontend.onrender.com/api), which does not exist.
 export function validateApiBase(): { ok: boolean; message?: string } {
-  if (isProductionRuntime() && !API_BASE_IS_ABSOLUTE) {
-    const message =
-      "VITE_API_BASE_URL is missing. Production frontend must use backend API URL.";
-    if (!apiBaseValidated) {
-      console.error(message, { apiBase: API_BASE });
-      apiBaseValidated = true;
-    }
-    return { ok: false, message };
+  const result = evaluateApiBase(API_BASE, isProductionRuntime());
+  if (!result.ok && !apiBaseValidated) {
+    console.error(result.message, { apiBase: API_BASE });
+    apiBaseValidated = true;
   }
-  return { ok: true };
+  return result;
 }
 
 if (typeof window !== "undefined") {
@@ -543,6 +550,24 @@ export function resolveMediaUrl(input?: string | null): string | undefined {
     return `${API_ORIGIN}${value}`;
   }
   return value;
+}
+
+/**
+ * Select the best UI-safe preview URL for an asset-like object.
+ *
+ * Priority: browserUrl > thumbnailUrl > previewUrl (server-confirmed or blob) >
+ * url > viewUrl. providerUrl, raw storageKey and the protected
+ * /api/assets/:id/view route are intentionally excluded for UI previews.
+ */
+export function selectAssetPreviewUrl(asset: any): string | undefined {
+  if (!asset || typeof asset !== "object") return undefined;
+  return (
+    resolveMediaUrl(asset.browserUrl) ||
+    resolveMediaUrl(asset.thumbnailUrl) ||
+    resolveMediaUrl(asset.previewUrl) ||
+    resolveMediaUrl(asset.url) ||
+    resolveMediaUrl(asset.viewUrl)
+  );
 }
 
 function pickNonEmptyString(input: unknown): string | undefined {

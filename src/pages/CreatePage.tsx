@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { api, ApiError, resolveMediaUrl, type SmmAgentOutputs, type SmmAgentVideoAspectRatio } from '../lib/api';
+import { api, ApiError, resolveMediaUrl, selectAssetPreviewUrl, type SmmAgentOutputs, type SmmAgentVideoAspectRatio } from '../lib/api';
 import ConfirmedAssetStrip from '../components/ConfirmedAssetStrip';
 import RecommendationPanel from '../components/RecommendationPanel';
 import SelectedSolutionBanner from '../components/SelectedSolutionBanner';
@@ -57,13 +57,9 @@ function assetFromSessionItem(item: any, mediaSlots: TemplateMediaSlot[]): Confi
   const analysis = item.asset?.analysis;
   const browserUrl = resolveMediaUrl(item.asset?.browserUrl);
   const thumbnailUrl = resolveMediaUrl(item.asset?.thumbnailUrl);
-  // Restore preview from backend-provided URLs only. Do not reconstruct the
-  // protected /api/assets/:id/view route.
-  const previewUrl =
-    browserUrl ||
-    thumbnailUrl ||
-    resolveMediaUrl(item.asset?.url) ||
-    resolveMediaUrl(item.asset?.viewUrl);
+  // Restore preview from backend-provided URLs only (browserUrl || thumbnailUrl ||
+  // url). Do not reconstruct the protected /api/assets/:id/view route.
+  const previewUrl = selectAssetPreviewUrl(item.asset);
   return {
     assetId: item.assetId,
     slotId: item.slotId!,
