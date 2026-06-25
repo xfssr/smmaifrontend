@@ -1,9 +1,12 @@
 import React from 'react';
 import { Trash2, CheckCircle2 } from 'lucide-react';
+import { resolveMediaUrl } from '../lib/api';
 
 interface ConfirmedAsset {
   id: string;
   previewUrl: string;
+  browserUrl?: string;
+  thumbnailUrl?: string;
   description: string;
   order?: number;
   shotRole?: string;
@@ -17,11 +20,13 @@ interface ConfirmedAssetStripProps {
 }
 
 function getAssetPreviewUrl(asset: ConfirmedAsset): string | undefined {
-  if (asset.previewUrl?.startsWith('blob:')) return asset.previewUrl;
-  // If we have an ID, we can always fallback to the proxy route
-  const assetId = asset.id;
-  if (!assetId) return asset.previewUrl;
-  return `/api/assets/${assetId}/view`;
+  // UI image priority: browserUrl > thumbnailUrl > server/blob previewUrl.
+  // Never reconstruct the protected /api/assets/:id/view route for previews.
+  return (
+    resolveMediaUrl(asset.browserUrl) ||
+    resolveMediaUrl(asset.thumbnailUrl) ||
+    resolveMediaUrl(asset.previewUrl)
+  );
 }
 
 const ConfirmedAssetStrip: React.FC<ConfirmedAssetStripProps> = ({ assets, onRemove }) => {

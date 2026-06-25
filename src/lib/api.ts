@@ -1,5 +1,23 @@
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "/api").trim();
 const DEV_TOKEN_PATH = "/dev/token";
+
+// Upload strategy. Default to backend proxy upload for MVP because R2 public GET
+// and R2 browser PUT CORS are configured independently; a public bucket does not
+// guarantee a browser direct PUT will succeed. Set VITE_UPLOAD_STRATEGY=direct_s3
+// only once direct browser PUT to object storage has been verified.
+const UPLOAD_STRATEGY = (import.meta.env.VITE_UPLOAD_STRATEGY || "backend_proxy").trim();
+
+export function isAbsoluteHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+const API_BASE_IS_ABSOLUTE = isAbsoluteHttpUrl(API_BASE);
+
+// Origin portion of API_BASE (without the trailing "/api") used to absolutize
+// relative "/api/..." paths when needed.
+const API_ORIGIN = API_BASE_IS_ABSOLUTE
+  ? API_BASE.replace(/\/api\/?$/i, "")
+  : "";
 import type { TemplateMediaConfig } from './types';
 import type { BrandCollectionBoard, ChatMessage, GeneratedReferenceCard, SourceAnalysisBoard } from '../features/guided-create/types';
 
@@ -21,7 +39,23 @@ type CreatedAsset = {
   id: string;
   status: string;
   key: string;
+  storageKey?: string;
+  mimeType?: string;
   uploadUrl: string;
+  browserUrl?: string;
+  thumbnailUrl?: string;
+  providerUrl?: string;
+};
+
+type AssetMediaUrls = {
+  id?: string;
+  status?: string;
+  key?: string;
+  storageKey?: string;
+  mimeType?: string;
+  browserUrl?: string;
+  thumbnailUrl?: string;
+  providerUrl?: string;
 };
 
 type CreateJobIntent = {
@@ -461,6 +495,103 @@ function isDevelopmentRuntime() {
     host.includes("192.168.") ||
     host.includes("10.0.")
   );
+}
+
+function isProductionRuntime() {
+  return !isDevelopmentRuntime();
+}
+
+let apiBaseValidated = false;
+// Pure check: in production the API base must be an absolute backend URL.
+export function evaluateApiBase(apiBase: string, production: boolean): { ok: boolean; message?: string } {
+  if (production && !isAbsoluteHttpUrl(apiBase)) {
+    return {
+      ok: false,
+      message: "VITE_API_BASE_URL is missing. Production frontend must use backend API URL.",
+    };
+  }
+  return { ok: true };
+}
+
+// Validate that the API base is an absolute backend URL in production. A
+// relative "/api" base in production means VITE_API_BASE_URL was not set on the
+// static site and every API/upload request would target the frontend origin
+// (e.g. https://smmaifrontend.onrender.com/api), which does not exist.
+export function validateApiBase(): { ok: boolean; message?: string } {
+  const result = evaluateApiBase(API_BASE, isProductionRuntime());
+  if (!result.ok && !apiBaseValidated) {
+    console.error(result.message, { apiBase: API_BASE });
+    apiBaseValidated = true;
+  }
+  return result;
+}
+
+if (typeof window !== "undefined") {
+  // Validate eagerly on module load so a misconfigured production deployment
+  // (relative "/api" base) surfaces a clear console error immediately, before
+  // any upload is attempted. Vite inlines VITE_* env at build time, so values
+  // are already finalized here.
+  validateApiBase();
+}
+
+/**
+ * Resolve a value into a URL suitable for `<img>` / media use.
+ *
+ * Rules:
+ * - Empty/blank input returns undefined.
+ * - blob:, data:, http:// and https:// values are returned as-is (never double-prefixed).
+ * - A relative "/api/..." path is absolutized against the backend origin only when
+ *   API_BASE is absolute. This is primarily intended for API fetches; for UI image
+ *   previews callers should prefer browserUrl/thumbnailUrl over any /api path.
+ * - providerUrl must never be passed here for UI preview (it is not a UI-safe URL).
+ */
+export function resolveMediaUrl(input?: string | null): string | undefined {
+  if (input == null) return undefined;
+  const value = input.trim();
+  if (!value) return undefined;
+  if (/^(blob:|data:|https?:\/\/)/i.test(value)) return value;
+  if (value.startsWith("/api/") && API_BASE_IS_ABSOLUTE && API_ORIGIN) {
+    return `${API_ORIGIN}${value}`;
+  }
+  return value;
+}
+
+/**
+ * Select the best UI-safe preview URL for an asset-like object.
+ *
+ * Priority: browserUrl > thumbnailUrl > previewUrl (server-confirmed or blob) >
+ * url > viewUrl. providerUrl, raw storageKey and the protected
+ * /api/assets/:id/view route are intentionally excluded for UI previews.
+ */
+export function selectAssetPreviewUrl(asset: any): string | undefined {
+  if (!asset || typeof asset !== "object") return undefined;
+  return (
+    resolveMediaUrl(asset.browserUrl) ||
+    resolveMediaUrl(asset.thumbnailUrl) ||
+    resolveMediaUrl(asset.previewUrl) ||
+    resolveMediaUrl(asset.url) ||
+    resolveMediaUrl(asset.viewUrl)
+  );
+}
+
+function pickNonEmptyString(input: unknown): string | undefined {
+  return typeof input === "string" && input.trim().length > 0 ? input : undefined;
+}
+
+// Normalize the canonical asset URL fields returned by the backend
+// (upload/complete/asset responses) into a stable shape.
+function pickAssetMediaUrls(asset: any): AssetMediaUrls {
+  if (!asset || typeof asset !== "object") return {};
+  return {
+    id: pickNonEmptyString(asset.id),
+    status: pickNonEmptyString(asset.status),
+    key: pickNonEmptyString(asset.key),
+    storageKey: pickNonEmptyString(asset.storageKey),
+    mimeType: pickNonEmptyString(asset.mimeType),
+    browserUrl: pickNonEmptyString(asset.browserUrl),
+    thumbnailUrl: pickNonEmptyString(asset.thumbnailUrl),
+    providerUrl: pickNonEmptyString(asset.providerUrl),
+  };
 }
 
 function setDevAuthStatus(next: DevAuthStatus) {
@@ -1025,7 +1156,16 @@ export const api = {
     }),
   createAsset: async (data: CreateAssetInput): Promise<CreatedAsset> => {
     const response = await request<{
-      asset: { id: string; status: string; key: string };
+      asset: {
+        id: string;
+        status: string;
+        key: string;
+        storageKey?: string;
+        mimeType?: string;
+        browserUrl?: string;
+        thumbnailUrl?: string;
+        providerUrl?: string;
+      };
       upload: { uploadUrl: string };
     }>("/assets/upload", {
       method: "POST",
@@ -1039,14 +1179,31 @@ export const api = {
         },
       }),
     });
+    const media = pickAssetMediaUrls(response.asset);
     return {
       id: response.asset.id,
       status: response.asset.status,
       key: response.asset.key,
+      storageKey: media.storageKey,
+      mimeType: media.mimeType,
       uploadUrl: response.upload.uploadUrl,
+      browserUrl: media.browserUrl,
+      thumbnailUrl: media.thumbnailUrl,
+      providerUrl: media.providerUrl,
     };
   },
   uploadFile: async (url: string, file: File, assetId?: string) => {
+    // Default production strategy is backend_proxy: always upload through the
+    // backend so we never depend on R2 browser PUT CORS. Direct browser PUT to
+    // object storage is only used when explicitly opted in via direct_s3.
+    if (UPLOAD_STRATEGY !== "direct_s3") {
+      if (!assetId) {
+        throw new Error("Backend proxy upload requires an assetId");
+      }
+      await uploadFileThroughBackend(assetId, file);
+      return;
+    }
+
     if (assetId && shouldUseBackendUpload(url)) {
       await uploadFileThroughBackend(assetId, file);
       return;
@@ -1069,10 +1226,14 @@ export const api = {
       throw error;
     }
   },
-  completeAsset: (id: string) =>
-    request<any>(`/assets/${id}/complete`, {
+  completeAsset: async (id: string): Promise<AssetMediaUrls> => {
+    const response = await request<any>(`/assets/${id}/complete`, {
       method: "POST",
-    }),
+    });
+    // Backend returns the updated asset payload (possibly wrapped in `asset`).
+    const asset = response?.asset ?? response;
+    return pickAssetMediaUrls(asset);
+  },
   analyzeAsset: (id: string) =>
     requestWithRetry<any>(`/smm-agent/assets/${id}/analyze`, {
       method: "POST",
