@@ -161,6 +161,36 @@ export function shouldResetSmmAgentJobForNewUpload(job: SmmJobState | null | und
   return job?.status === 'failed' || job?.status === 'completed' || job?.status === 'cancelled';
 }
 
+export function createGuidedSlotsFromConfig(
+  templateMediaConfig: TemplateMediaConfig,
+  confirmedAssets: ConfirmedSlotAsset[],
+): MediaSlotState[] {
+  const slots: MediaSlotState[] = templateMediaConfig.mediaSlots.map((s) => {
+    const confirmed = confirmedAssets.find(a => a.slotId === s.slotId);
+
+    return {
+      id: s.slotId,
+      type: (s.role as any) || 'dish_main',
+      title: s.label,
+      prompt: s.description || s.cameraGuidance?.[0] || `Upload a photo for ${s.label}`,
+      required: s.required,
+      status: confirmed ? 'complete' : 'locked',
+      assetId: confirmed?.assetId,
+      previewUrl: confirmed?.previewUrl,
+      browserUrl: confirmed?.browserUrl,
+      thumbnailUrl: confirmed?.thumbnailUrl,
+      analysis: confirmed ? { shortSummary: confirmed.analysisTitle || 'Asset confirmed' } : undefined
+    };
+  });
+
+  const firstIncomplete = slots.find(s => s.status !== 'complete');
+  if (firstIncomplete) {
+    firstIncomplete.status = 'active';
+  }
+
+  return slots;
+}
+
 function getNextOpenSlot(mediaSlots: TemplateMediaSlot[], confirmedAssets: ConfirmedSlotAsset[]): TemplateMediaSlot | undefined {
   const confirmedSlotIds = new Set(confirmedAssets.map(a => a.slotId));
 
@@ -314,6 +344,7 @@ const CreatePage: React.FC = () => {
   const [approvedReferenceImageIds, setApprovedReferenceImageIds] = useState<string[]>([]);
   const [finalVideoUrl, setFinalVideoUrl] = useState<string | null>(null);
   const [isStartingVideo, setIsStartingVideo] = useState(false);
+  const [workflowResetKey, setWorkflowResetKey] = useState(0);
   const guidedSlotsRef = useRef<MediaSlotState[]>([]);
   const confirmedAssetsRef = useRef<ConfirmedSlotAsset[]>([]);
   const localBlobUrlsRef = useRef<Set<string>>(new Set());
@@ -363,33 +394,7 @@ const CreatePage: React.FC = () => {
   // Initialize guidedSlots from templateMediaConfig
   useEffect(() => {
     if (!templateMediaConfig) return;
-
-    const slots: MediaSlotState[] = templateMediaConfig.mediaSlots.map((s, idx) => {
-      // Check if we already have a confirmed asset for this slot
-      const confirmed = confirmedAssets.find(a => a.slotId === s.slotId);
-
-      return {
-        id: s.slotId,
-        type: (s.role as any) || 'dish_main',
-        title: s.label,
-        prompt: s.description || s.cameraGuidance?.[0] || `Upload a photo for ${s.label}`,
-        required: s.required,
-        status: confirmed ? 'complete' : 'locked',
-        assetId: confirmed?.assetId,
-        previewUrl: confirmed?.previewUrl,
-        browserUrl: confirmed?.browserUrl,
-        thumbnailUrl: confirmed?.thumbnailUrl,
-        analysis: confirmed ? { shortSummary: confirmed.analysisTitle || 'Asset confirmed' } : undefined
-      };
-    });
-
-    // Unlock the first incomplete slot
-    const firstIncomplete = slots.find(s => s.status !== 'complete');
-    if (firstIncomplete) {
-      firstIncomplete.status = 'active';
-    }
-
-    setGuidedSlots(slots);
+    setGuidedSlots(createGuidedSlotsFromConfig(templateMediaConfig, confirmedAssets));
   }, [templateMediaConfig, confirmedAssets.length]); // Re-sync when config or assets count changes
 
   // Initialize session
@@ -591,18 +596,19 @@ const CreatePage: React.FC = () => {
     });
   };
 
-  const prepareSessionForUpload = async (currentSessionId: string): Promise<string> => {
-    if (!smmAgentJobId || !workspaceId) return currentSessionId;
+  const prepareSessionForUpload = async (currentSessionId: string): Promise<{ sessionId: string; reset: boolean }> => {
+    if (!smmAgentJobId || !workspaceId) return { sessionId: currentSessionId, reset: false };
 
     const job = await api.getSmmAgentJob(smmAgentJobId).catch((err) => {
       console.warn('Unable to refresh SMM job before upload; continuing with current session.', err);
       return null;
     });
 
-    if (!shouldResetSmmAgentJobForNewUpload(job)) return currentSessionId;
+    if (!shouldResetSmmAgentJobForNewUpload(job)) return { sessionId: currentSessionId, reset: false };
 
     const created = await api.createUploadSession({ workspaceId });
     const nextSessionId = created.session.id;
+    const resetSlots = templateMediaConfig ? createGuidedSlotsFromConfig(templateMediaConfig, []) : [];
     setSessionId(nextSessionId);
     sessionStorage.setItem('upload_session_id', nextSessionId);
     setSmmAgentJobId(null);
@@ -611,10 +617,13 @@ const CreatePage: React.FC = () => {
     setFinalVideoUrl(null);
     setConfirmedAssets([]);
     confirmedAssetsRef.current = [];
+    setGuidedSlots(resetSlots);
+    guidedSlotsRef.current = resetSlots;
     setSourceAnalysisBoard(null);
     setBrandCollectionBoard(null);
     setDirection(undefined);
     setError(null);
+    setWorkflowResetKey(key => key + 1);
 
     await api.updateUploadSession(nextSessionId, {
       selectedTemplateId: selectedTemplate?.id ?? null,
@@ -622,7 +631,7 @@ const CreatePage: React.FC = () => {
       selectedTemplateSlug: selectedTemplate?.slug ?? templateMediaConfig?.templateSlug ?? null,
     });
 
-    return nextSessionId;
+    return { sessionId: nextSessionId, reset: true };
   };
 
   const handleGuidedUpload = async (slotId: string | undefined, file: File) => {
@@ -649,7 +658,9 @@ const CreatePage: React.FC = () => {
     localBlobUrlsRef.current.add(previewUrl);
 
     try {
-      const activeSessionId = await prepareSessionForUpload(sessionId);
+      const preparedSession = await prepareSessionForUpload(sessionId);
+      const activeSessionId = preparedSession.sessionId;
+      const requestedSlotId = preparedSession.reset ? undefined : slotId;
       const asset = await runUploadStage('create_asset_failed', '/assets/upload', () =>
         api.createAsset({
           workspaceId,
@@ -659,7 +670,7 @@ const CreatePage: React.FC = () => {
             templateId: selectedTemplate?.id,
             templateSlug: selectedTemplate?.slug || templateMediaConfig.templateSlug,
             uploadSessionId: activeSessionId,
-            ...(slotId ? { slotId } : {}),
+            ...(requestedSlotId ? { slotId: requestedSlotId } : {}),
           },
         }),
       );
@@ -700,7 +711,7 @@ const CreatePage: React.FC = () => {
       }
 
       if (analysis.status === 'accepted') {
-        const resolvedSlotId = slotId || resolveAutoSlotForAnalysis({
+        const resolvedSlotId = requestedSlotId || resolveAutoSlotForAnalysis({
           analysis,
           templateMediaConfig,
           guidedSlots: guidedSlotsRef.current,
@@ -755,7 +766,7 @@ const CreatePage: React.FC = () => {
         const suggestion = analysis?.vision?.nextPhotoSuggestion || analysis?.nextPhotoSuggestion;
         const reason = analysis.userMessage || 'Image quality check requires a clearer photo.';
         return {
-          slotId: slotId || 'error',
+          slotId: requestedSlotId || 'error',
           status: 'needs_retake' as const,
           message: suggestion ? `${reason} ${suggestion}` : reason,
           nextPhotoSuggestion: suggestion,
@@ -1060,6 +1071,7 @@ const CreatePage: React.FC = () => {
               approvedReferenceImageIds={approvedReferenceImageIds}
               finalVideoUrl={finalVideoUrl}
               workflowError={error}
+              workflowResetKey={workflowResetKey}
               isSaving={isSaving || isStartingVideo}
               isGenerating={isSaving || isStartingVideo}
             />

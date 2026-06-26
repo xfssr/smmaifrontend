@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createGuidedSlotsFromConfig,
   getGuidedUploadPrerequisiteError,
   getSmmAgentFailureMessage,
   shouldApproveSmmAgentPreviews,
@@ -67,5 +68,47 @@ describe('SMM job state helpers', () => {
     expect(shouldResetSmmAgentJobForNewUpload({ status: 'failed' })).toBe(true);
     expect(shouldResetSmmAgentJobForNewUpload({ status: 'completed' })).toBe(true);
     expect(shouldResetSmmAgentJobForNewUpload({ status: 'waiting_provider', currentStep: 'awaiting_user_approval' })).toBe(false);
+  });
+
+  it('rebuilds reset upload slots with the first required slot active and no stale completions', () => {
+    const slots = createGuidedSlotsFromConfig(
+      {
+        templateSlug: 'menu',
+        displayName: 'Menu',
+        maxAssets: 2,
+        mediaSlots: [
+          {
+            slotId: 'main',
+            label: 'Main photo',
+            role: 'dish_main',
+            description: 'Main dish',
+            required: true,
+            min: 1,
+            max: 1,
+            cameraGuidance: [],
+            acceptedObjects: [],
+            avoid: [],
+          },
+          {
+            slotId: 'closeup',
+            label: 'Close-up',
+            role: 'detail',
+            description: 'Detail',
+            required: false,
+            min: 0,
+            max: 1,
+            cameraGuidance: [],
+            acceptedObjects: [],
+            avoid: [],
+          },
+        ],
+      },
+      [],
+    );
+
+    expect(slots.map(slot => [slot.id, slot.status])).toEqual([
+      ['main', 'active'],
+      ['closeup', 'locked'],
+    ]);
   });
 });

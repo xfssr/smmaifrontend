@@ -97,6 +97,7 @@ interface CreateWorkflowPageProps {
   approvedReferenceImageIds?: string[];
   finalVideoUrl?: string | null;
   workflowError?: string | null;
+  workflowResetKey?: number;
   isSaving: boolean;
   isGenerating?: boolean;
 }
@@ -237,6 +238,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
   onPreviewCollectionChange,
   finalVideoUrl,
   workflowError,
+  workflowResetKey = 0,
   isSaving,
   isGenerating,
 }) => {
@@ -252,6 +254,18 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
   const [isTyping, setIsTyping] = useState(false);
   const [showSlots, setShowSlots] = useState(false);
   const [selectedSlotIdForUpload, setSelectedSlotIdForUpload] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveUploads([]);
+    setSelectedSlotForDetail(null);
+    setAgentStatus('idle');
+    setAgentError(null);
+    setChatMessages([]);
+    setIsTyping(false);
+    setShowSlots(false);
+    setSelectedSlotIdForUpload(null);
+    generationMessageKeysRef.current.clear();
+  }, [workflowResetKey]);
 
   const experience = useMemo(() => normalizeTemplateExperience(template), [template]);
   const previewImage = experience.previewImage;
