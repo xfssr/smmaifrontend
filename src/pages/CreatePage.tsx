@@ -24,6 +24,17 @@ import { frontendBridge } from '../lib/frontendBridge';
 import { invalidateAccountBalance } from '../hooks/useAccountBalance';
 
 type FlowState = 'initializing' | 'idle' | 'uploading' | 'analyzing' | 'reviewing' | 'recommending' | 'creating_job' | 'error';
+type SmmOutputWaitTarget = 'preview' | 'video';
+type SmmJobState = {
+  status?: string | null;
+  currentStep?: string | null;
+  pipelineState?: string | null;
+  safeError?: { message?: string | null } | null;
+  failureReason?: string | null;
+  lastError?: { message?: string | null } | null;
+  errorJson?: any;
+  error_json?: any;
+};
 
 const defaultMediaConfig: TemplateMediaConfig = {
   templateSlug: 'default',
@@ -118,6 +129,36 @@ export function getGuidedUploadPrerequisiteError(input: {
 
   if (missing.length === 0) return undefined;
   return `Upload session is not ready: missing ${missing.join(', ')}.`;
+}
+
+export function shouldApproveSmmAgentPreviews(job: SmmJobState | null | undefined, isStartingVideo: boolean): boolean {
+  if (isStartingVideo || !job) return false;
+  return job.status === 'waiting_provider' && job.currentStep === 'awaiting_user_approval';
+}
+
+export function shouldRequestSmmAgentOutputs(job: SmmJobState | null | undefined, target: SmmOutputWaitTarget): boolean {
+  if (!job || job.status === 'failed' || job.status === 'cancelled') return false;
+  if (target === 'preview') {
+    return job.status === 'waiting_provider' && job.currentStep === 'awaiting_user_approval';
+  }
+  return job.status === 'completed' || job.currentStep === 'video_ready' || job.pipelineState === 'video_ready';
+}
+
+export function getSmmAgentFailureMessage(errorOrJob: any): string {
+  const details = errorOrJob?.details ?? errorOrJob?.error?.details;
+  const rawErr = errorOrJob?.safeError ?? errorOrJob?.lastError ?? errorOrJob?.errorJson ?? errorOrJob?.error_json;
+  const message =
+    errorOrJob?.failureReason ||
+    details?.failureReason ||
+    rawErr?.message ||
+    rawErr?.error?.message ||
+    (typeof rawErr === 'string' ? rawErr : undefined) ||
+    errorOrJob?.message;
+  return message || 'SMM Agent job failed. Please retry.';
+}
+
+export function shouldResetSmmAgentJobForNewUpload(job: SmmJobState | null | undefined): boolean {
+  return job?.status === 'failed' || job?.status === 'completed' || job?.status === 'cancelled';
 }
 
 function getNextOpenSlot(mediaSlots: TemplateMediaSlot[], confirmedAssets: ConfirmedSlotAsset[]): TemplateMediaSlot | undefined {
@@ -272,10 +313,12 @@ const CreatePage: React.FC = () => {
   const [brandCollectionBoard, setBrandCollectionBoard] = useState<BrandCollectionBoard | null>(null);
   const [approvedReferenceImageIds, setApprovedReferenceImageIds] = useState<string[]>([]);
   const [finalVideoUrl, setFinalVideoUrl] = useState<string | null>(null);
+  const [isStartingVideo, setIsStartingVideo] = useState(false);
   const guidedSlotsRef = useRef<MediaSlotState[]>([]);
   const confirmedAssetsRef = useRef<ConfirmedSlotAsset[]>([]);
   const localBlobUrlsRef = useRef<Set<string>>(new Set());
   const initStartedRef = useRef(false);
+  const isStartingVideoRef = useRef(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -548,6 +591,40 @@ const CreatePage: React.FC = () => {
     });
   };
 
+  const prepareSessionForUpload = async (currentSessionId: string): Promise<string> => {
+    if (!smmAgentJobId || !workspaceId) return currentSessionId;
+
+    const job = await api.getSmmAgentJob(smmAgentJobId).catch((err) => {
+      console.warn('Unable to refresh SMM job before upload; continuing with current session.', err);
+      return null;
+    });
+
+    if (!shouldResetSmmAgentJobForNewUpload(job)) return currentSessionId;
+
+    const created = await api.createUploadSession({ workspaceId });
+    const nextSessionId = created.session.id;
+    setSessionId(nextSessionId);
+    sessionStorage.setItem('upload_session_id', nextSessionId);
+    setSmmAgentJobId(null);
+    setGeneratedReferenceCards([]);
+    setApprovedReferenceImageIds([]);
+    setFinalVideoUrl(null);
+    setConfirmedAssets([]);
+    confirmedAssetsRef.current = [];
+    setSourceAnalysisBoard(null);
+    setBrandCollectionBoard(null);
+    setDirection(undefined);
+    setError(null);
+
+    await api.updateUploadSession(nextSessionId, {
+      selectedTemplateId: selectedTemplate?.id ?? null,
+      selectedCategory: shootingCategory,
+      selectedTemplateSlug: selectedTemplate?.slug ?? templateMediaConfig?.templateSlug ?? null,
+    });
+
+    return nextSessionId;
+  };
+
   const handleGuidedUpload = async (slotId: string | undefined, file: File) => {
     const prerequisiteError = getGuidedUploadPrerequisiteError({ sessionId, workspaceId, templateMediaConfig });
     if (prerequisiteError || !sessionId || !workspaceId || !templateMediaConfig) {
@@ -572,6 +649,7 @@ const CreatePage: React.FC = () => {
     localBlobUrlsRef.current.add(previewUrl);
 
     try {
+      const activeSessionId = await prepareSessionForUpload(sessionId);
       const asset = await runUploadStage('create_asset_failed', '/assets/upload', () =>
         api.createAsset({
           workspaceId,
@@ -580,7 +658,7 @@ const CreatePage: React.FC = () => {
             source: 'guided_upload',
             templateId: selectedTemplate?.id,
             templateSlug: selectedTemplate?.slug || templateMediaConfig.templateSlug,
-            uploadSessionId: sessionId,
+            uploadSessionId: activeSessionId,
             ...(slotId ? { slotId } : {}),
           },
         }),
@@ -643,8 +721,8 @@ const CreatePage: React.FC = () => {
         await api.updateAssetAnalysis(asset.id, { confirmed: true });
         createPerfMark('asset_confirmed');
 
-        const sessionResponse = await runUploadStage('attach_to_session_failed', `/uploads/sessions/${sessionId}/assets`, () =>
-          api.addAssetToSession(sessionId, asset.id, resolvedSlotId),
+        const sessionResponse = await runUploadStage('attach_to_session_failed', `/uploads/sessions/${activeSessionId}/assets`, () =>
+          api.addAssetToSession(activeSessionId, asset.id, resolvedSlotId),
         );
         applyPreviewCollectionBoards(sessionResponse);
         createPerfMark('asset_attached_to_session');
@@ -736,36 +814,41 @@ const CreatePage: React.FC = () => {
   const waitForSmmAgentOutputs = async (
     jobId: string,
     predicate: (outputs: SmmAgentOutputs) => boolean,
-    timeoutMs = 45_000
+    timeoutMs = 45_000,
+    target: SmmOutputWaitTarget = 'preview',
   ): Promise<SmmAgentOutputs> => {
     const startedAt = Date.now();
     let lastError: unknown;
-    const isOutputsPending = (err: any) => {
-      const message = typeof err?.message === 'string' ? err.message : '';
-      return err?.status === 400 && /outputs are not ready|not ready yet|not_completed/i.test(message);
-    };
 
     while (Date.now() - startedAt < timeoutMs) {
       try {
         const job = await api.getSmmAgentJob(jobId);
-        if (job.status === "failed") {
-          const rawErr = job.errorJson || job.error_json;
-          const errMsg = rawErr?.message || rawErr?.error?.message || (typeof rawErr === 'string' ? rawErr : null) || "Job execution failed";
-          throw new Error(`Analysis failed: ${errMsg}`);
+        if (job.status === 'failed') {
+          const failure = new Error(getSmmAgentFailureMessage(job));
+          (failure as any).terminalJobFailure = true;
+          throw failure;
         }
-        if (job.status === "cancelled") {
-          throw new Error("Analysis job was cancelled.");
+        if (job.status === 'cancelled') {
+          const cancelled = new Error('Analysis job was cancelled.');
+          (cancelled as any).terminalJobFailure = true;
+          throw cancelled;
+        }
+
+        if (!shouldRequestSmmAgentOutputs(job, target)) {
+          await new Promise(resolve => setTimeout(resolve, 900));
+          continue;
         }
 
         const outputs = await api.getSmmAgentOutputs(jobId);
         if (predicate(outputs)) return outputs;
       } catch (err: any) {
-        if (err instanceof Error && (err.message.startsWith("Analysis failed") || err.message.startsWith("Analysis job"))) {
+        if (err instanceof ApiError && (err.status === 400 || err.status === 409)) {
+          throw new Error(getSmmAgentFailureMessage(err));
+        }
+        if ((err as any)?.terminalJobFailure) {
           throw err;
         }
-        if (!isOutputsPending(err)) {
-          lastError = err;
-        }
+        lastError = err;
       }
       await new Promise(resolve => setTimeout(resolve, 900));
     }
@@ -830,7 +913,8 @@ const CreatePage: React.FC = () => {
       const outputs = await waitForSmmAgentOutputs(
         jobId,
         next => Boolean(next.generatedReferenceCards?.length),
-        900_000
+        900_000,
+        'preview',
       );
       applySmmAgentOutputs(outputs);
       invalidateAccountBalance();
@@ -861,23 +945,36 @@ const CreatePage: React.FC = () => {
   };
 
   const handleStartFinalVideo = async (selectedReferenceImageIds: string[], aspectRatio: SmmAgentVideoAspectRatio) => {
-    if (!smmAgentJobId || selectedReferenceImageIds.length === 0) return;
+    if (!smmAgentJobId || selectedReferenceImageIds.length === 0 || isStartingVideoRef.current) return;
+    isStartingVideoRef.current = true;
+    setIsStartingVideo(true);
     try {
       setIsSaving(true);
+      setError(null);
+      const job = await api.getSmmAgentJob(smmAgentJobId);
+      if (!shouldApproveSmmAgentPreviews(job, false)) {
+        throw new Error(job?.status === 'failed'
+          ? getSmmAgentFailureMessage(job)
+          : 'Previews are not awaiting approval for this job.');
+      }
       await api.approveSmmAgentPreviews(smmAgentJobId, selectedReferenceImageIds);
       await api.startSmmAgentVideo(smmAgentJobId, selectedReferenceImageIds, aspectRatio);
       const outputs = await waitForSmmAgentOutputs(
         smmAgentJobId,
         next => Boolean(next.finalVideoUrl),
-        90_000
+        90_000,
+        'video',
       );
       applySmmAgentOutputs(outputs);
       invalidateAccountBalance();
       setIsSaving(false);
     } catch (err: any) {
       console.error("Final video generation failed:", err);
-      setError(err.message || 'Failed to generate final video.');
+      setError(getSmmAgentFailureMessage(err) || 'Failed to generate final video.');
       setIsSaving(false);
+    } finally {
+      isStartingVideoRef.current = false;
+      setIsStartingVideo(false);
     }
   };
 
@@ -962,8 +1059,9 @@ const CreatePage: React.FC = () => {
               }}
               approvedReferenceImageIds={approvedReferenceImageIds}
               finalVideoUrl={finalVideoUrl}
-              isSaving={isSaving}
-              isGenerating={isSaving}
+              workflowError={error}
+              isSaving={isSaving || isStartingVideo}
+              isGenerating={isSaving || isStartingVideo}
             />
           )}
 

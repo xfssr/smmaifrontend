@@ -476,7 +476,9 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
-    public readonly requestId?: string | null
+    public readonly requestId?: string | null,
+    public readonly details?: unknown,
+    public readonly code?: string
   ) {
     super(message);
   }
@@ -848,7 +850,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const contentType = res.headers.get("content-type");
     if (contentType && contentType.includes("application/json")) {
       const error = await res.json();
-      throw new ApiError(error.error?.message || error.message || `API error ${res.status}`, res.status, requestId);
+      const payload = error.error ?? error;
+      throw new ApiError(
+        payload?.message || `API error ${res.status}`,
+        res.status,
+        requestId,
+        payload?.details,
+        payload?.code,
+      );
     }
     throw new ApiError(`API error ${res.status}: ${res.statusText}`, res.status, requestId);
   }

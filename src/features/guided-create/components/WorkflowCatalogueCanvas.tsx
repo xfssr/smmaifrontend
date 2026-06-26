@@ -78,6 +78,7 @@ export interface JobTelemetry {
 export interface CanvasProps {
   job: JobTelemetry | null;
   onApproveAndStartVideo: (selectedReferenceImageIds: string[], aspectRatio: PreviewAspectRatio) => void;
+  isStartingVideo?: boolean;
 }
 
 const PIPELINE_STEPS = [
@@ -124,7 +125,7 @@ function formatCardTitle(title: string) {
   return title || 'Brand Asset';
 }
 
-export const WorkflowCatalogueCanvas: React.FC<CanvasProps> = ({ job, onApproveAndStartVideo }) => {
+export const WorkflowCatalogueCanvas: React.FC<CanvasProps> = ({ job, onApproveAndStartVideo, isStartingVideo = false }) => {
   const currentStep = job?.currentStep ?? 'upload_preparation';
   const stepIndex = Math.max(0, PIPELINE_STEPS.indexOf(currentStep));
   const outputs = job?.outputs;
@@ -203,7 +204,11 @@ export const WorkflowCatalogueCanvas: React.FC<CanvasProps> = ({ job, onApproveA
     setSelectedPreviewIds(new Set(nextChecked ? selectableIds : []));
   };
 
-  const canStartVideo = isValidReferenceId(selectedPreviewIds.size ? Array.from(selectedPreviewIds)[0] : undefined) && selectedPreviewIds.size > 0;
+  const canStartVideo =
+    isAwaitingApproval &&
+    !isStartingVideo &&
+    isValidReferenceId(selectedPreviewIds.size ? Array.from(selectedPreviewIds)[0] : undefined) &&
+    selectedPreviewIds.size > 0;
 
   const renderSelection = (id?: string) => {
     if (!isAwaitingApproval || !id || !selectedPreviewIds.has(id)) return null;

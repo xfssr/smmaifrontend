@@ -96,6 +96,7 @@ interface CreateWorkflowPageProps {
   }) => void;
   approvedReferenceImageIds?: string[];
   finalVideoUrl?: string | null;
+  workflowError?: string | null;
   isSaving: boolean;
   isGenerating?: boolean;
 }
@@ -235,6 +236,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
   brandCollectionBoard,
   onPreviewCollectionChange,
   finalVideoUrl,
+  workflowError,
   isSaving,
   isGenerating,
 }) => {
@@ -479,6 +481,12 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
       appendSystemMessageOnce('final-video-ready', 'Final video is ready.');
     }
   }, [appendSystemMessageOnce, finalVideoUrl]);
+
+  useEffect(() => {
+    if (!workflowError) return;
+    setAgentError(workflowError);
+    appendSystemMessageOnce(`workflow-error-${workflowError}`, workflowError);
+  }, [appendSystemMessageOnce, workflowError]);
 
   const openFilePicker = useCallback((slotId?: string | null) => {
     setSelectedSlotIdForUpload(slotId ?? null);
@@ -827,6 +835,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
           {previewReady && (
             <WorkflowCatalogueCanvas
               job={job}
+              isStartingVideo={isSaving || isGenerating}
               onApproveAndStartVideo={(selectedReferenceImageIds, selectedAspectRatio) => {
                 if (!previewReady && canGenerate && !smmAgentJobId) {
                   appendSystemMessageOnce('canvas-generate-start', 'Starting preview generation.');
