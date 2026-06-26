@@ -371,6 +371,7 @@ export const CreateWorkflowPage: React.FC<CreateWorkflowPageProps> = ({
       selected: card.selected,
       approved: card.approved,
       provider: card.provider,
+      modelRole: card.modelRole,
       modelId: card.modelId,
       generationClass: card.generationClass,
     }));

@@ -15,6 +15,7 @@ type CatalogueReference = {
   selectedForVideo?: boolean;
   selected?: boolean;
   provider?: string;
+  modelRole?: 'nano_banana_2' | 'nano_banana_pro' | 'nano_banana_legacy' | 'mock_image' | 'gpt_image_2';
   modelId?: string;
   generationClass?: string;
 };
@@ -62,6 +63,7 @@ export interface JobTelemetry {
       selected?: boolean;
       approved?: boolean;
       provider?: string;
+      modelRole?: 'nano_banana_2' | 'nano_banana_pro' | 'nano_banana_legacy' | 'mock_image' | 'gpt_image_2';
       modelId?: string;
       generationClass?: string;
     }>;
@@ -113,6 +115,14 @@ function isValidReferenceId(value: string | undefined | null): value is string {
   return typeof value === 'string' && value.length > 0;
 }
 
+function isNanoBananaModel(role?: string) {
+  return role === 'nano_banana_2' || role === 'nano_banana_pro' || role === 'nano_banana_legacy';
+}
+
+function isGptImageModel(role?: string) {
+  return role === 'gpt_image_2';
+}
+
 function getDisplayImageUrl(card: { imageUrl?: string; internalUrl?: string; referenceImageId?: string; id: string }) {
   return card.imageUrl || card.internalUrl;
 }
@@ -141,6 +151,23 @@ export const WorkflowCatalogueCanvas: React.FC<CanvasProps> = ({ job, onApproveA
 
   const [selectedPreviewIds, setSelectedPreviewIds] = React.useState<Set<string>>(new Set());
   const [selectedAspectRatio, setSelectedAspectRatio] = React.useState<PreviewAspectRatio>('9:16');
+
+  const referenceModelSummary = React.useMemo(() => {
+    const cards = outputs?.brandCards ?? [];
+    const nanoBananaCount = cards.filter((card) => isNanoBananaModel(card.modelRole)).length;
+    const gptImageCount = cards.filter((card) => isGptImageModel(card.modelRole)).length;
+    const totalCount = cards.length;
+    const hasModelRoleData = cards.length > 0 && cards.every((card) => typeof card.modelRole === 'string');
+    const matchesExpected = cards.length === 5 && nanoBananaCount === 3 && gptImageCount === 2;
+    return {
+      totalCount,
+      nanoBananaCount,
+      gptImageCount,
+      hasModelRoleData,
+      matchesExpected,
+      isMismatch: hasModelRoleData && !matchesExpected,
+    };
+  }, [outputs?.brandCards]);
 
   const selectableCardItems = React.useMemo(() => {
     const cards = outputs?.brandCards ?? [];
@@ -316,6 +343,20 @@ export const WorkflowCatalogueCanvas: React.FC<CanvasProps> = ({ job, onApproveA
                 Recommend format: 9:16
               </div>
             </div>
+            {outputs?.brandCards?.length ? (
+              <div
+                data-testid="preview-model-summary"
+                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] text-zinc-300 space-y-1"
+              >
+                <div className="font-semibold text-zinc-200 text-[10px] uppercase tracking-wider">
+                  Expected per job/session: 3x Nano Banana 2 + 2x GPT Image 2
+                </div>
+                <div className={referenceModelSummary.isMismatch ? 'text-[#f97316]' : 'text-zinc-400'}>
+                  Observed: {referenceModelSummary.totalCount} total generated, {referenceModelSummary.nanoBananaCount} Nano Banana, {referenceModelSummary.gptImageCount} GPT image
+                  {referenceModelSummary.isMismatch ? ' (mismatch)' : ''}
+                </div>
+              </div>
+            ) : null}
             <div className="flex snap-x snap-mandatory gap-5 overflow-x-auto scroll-smooth pb-6 pt-2 px-2 scrollbar-hide [scrollbar-width:none]">
               {(outputs?.brandCards?.length ? outputs.brandCards : [
                 { id: 'palette', title: 'Palette' },

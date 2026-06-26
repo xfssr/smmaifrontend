@@ -13,6 +13,7 @@ type NormalizedReference = {
   selectedForVideo?: boolean;
   selected?: boolean;
   provider?: string;
+  modelRole?: 'nano_banana_2' | 'nano_banana_pro' | 'nano_banana_legacy' | 'mock_image' | 'gpt_image_2';
   modelId?: string;
   generationClass?: string;
 };
@@ -42,6 +43,7 @@ function mapSmmAgentJob(data: any): JobTelemetry {
       selectedForVideo: card?.selectedForVideo,
       selected: image?.selected ?? card?.selected,
       provider: card?.provider,
+      modelRole: card?.modelRole,
       modelId: card?.modelId,
       generationClass: card?.generationClass,
     };
@@ -80,6 +82,7 @@ function mapSmmAgentJob(data: any): JobTelemetry {
             selected: card.selected,
             approved: card.approved,
             provider: card.provider,
+            modelRole: card.modelRole,
             modelId: card.modelId,
             generationClass: card.generationClass,
           })),
